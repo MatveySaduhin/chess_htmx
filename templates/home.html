@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="text-center mb-12">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">♞ Chess App</h1>
+            <p class="text-gray-600">Play chess in real-time</p>
+        </header>
+
+        <!-- Main Actions -->
+        <div class="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6 space-y-4">
+            <button class="w-full py-3 bg-amber-600 text-white rounded-lg font-semibold
+                          hover:bg-amber-700 transition-colors duration-200
+                          shadow-md hover:shadow-lg"
+                    hx-post="/api/games">
+                Quick Play (Find Opponent)
+            </button>
+
+            <!-- Join Game Form -->
+            <div class="border-t pt-4">
+                <h3 class="font-semibold text-gray-700 mb-2">Join Existing Game</h3>
+                <div class="flex space-x-2">
+                    <input type="text" 
+                           id="game-id" 
+                           placeholder="Game ID" 
+                           class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                            onclick="joinGame()">
+                        Join
+                    </button>
+                </div>
+            </div>
+
+            <!-- Sign in button -->
+            <button class="w-full py-3 bg-green-600 text-white rounded-lg font-semibold
+                          hover:bg-green-700 transition-colors duration-200"
+                    hx-get="/auth"
+                    hx-push-url="true"
+                    hx-target="body">
+            SIGN IN
+            </button>
+        </div>
+    </div>
+
+    <script>
+        function joinGame() {
+            const gameId = document.getElementById('game-id').value.trim();
+            if (gameId) {
+                window.location.href = `/game/${gameId}`;
+            } else {
+                alert('Please enter a game ID');
+            }
+        }
+
+        // Auto-focus game ID input
+        document.getElementById('game-id')?.focus();
+    </script>
+</body>
+</html>

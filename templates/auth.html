@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="text-center mb-12">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">♞ Authentication</h1>
+        </header>
+
+        <!-- Main Actions -->
+        <div class="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6 space-y-4">
+
+            <!-- Login Fields -->
+            <div class="border-t pt-4">
+                <div class="flex space-x-2">
+                    <input type="text" 
+                           id="email" 
+                           placeholder="Email" 
+                           class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="flex space-x-2">
+                    <input type="text" 
+                           id="password" 
+                           placeholder="Password" 
+                           class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <!-- Sign in button -->
+            <button class="w-full py-3 bg-green-600 text-white rounded-lg font-semibold
+                          hover:bg-green-700 transition-colors duration-200"
+                    hx-post="/api/login">
+            SIGN IN
+            </button>
+        </div>
+    </div>
+</body>
+</html>

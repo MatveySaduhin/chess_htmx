@@ -1,0 +1,20 @@
+<!-- templates/game_created.html -->
+<div class="bg-green-50 border border-green-200 rounded-lg p-4 animate-fade-in">
+    <div class="flex items-center justify-between">
+        <div>
+            <h3 class="font-semibold text-green-800">Game Created!</h3>
+            <p class="text-green-600 text-sm">ID: {{.GameID}}</p>
+        </div>
+        <a href="/game/{{.GameID}}" 
+           class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+            Join Game
+        </a>
+    </div>
+</div>
+
+<script>
+    // Auto-redirect after 2 seconds
+    setTimeout(() => {
+        window.location.href = '/game/{{.GameID}}';
+    }, 2000);
+</script>
