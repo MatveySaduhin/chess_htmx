@@ -27,7 +27,7 @@ func main() {
     r.GET("/game/:id", func(c *gin.Context) {})
 
     r.GET("/auth", handlers.AuthPage)
-    r.POST("/auth", handlers.Login)
+    r.POST("/api/login", handlers.Login)
 
     r.GET("/ws", func(c *gin.Context) {
         wsHub.ServeWebSocket(c)
