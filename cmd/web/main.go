@@ -1,19 +1,46 @@
 package main
 
 import (
+	"chess_htmx/internal/api"
 	"chess_htmx/internal/game"
 	"chess_htmx/internal/wsmanager"
-        "chess_htmx/internal/api"
+	"context"
 	"log"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 func main() {
-    gameManager := game.NewGameManager()
-    handlers := api.NewHandlers(gameManager)
-    wsHub := wsmanager.NewHub(wsmanager.Config{})
+// NOTE: Creating MongoDB client (I don't like it)
+    ctx := context.Background()
+    client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://localhost:27017"))
+    if err != nil {
+	log.Fatal("Failed to connect to MongoDB: ", err)
+    }
+    defer func() {
+	if err := client.Disconnect(ctx); err != nil {
+	    log.Fatal("Failed to disconnect from MongoDB", err)
+	}
+    }()
 
+    authService, err:= api.NewAuthService(client, "my-mongoDB")
+    if err != nil {
+	log.Fatal("Errror initializing authentication service: ", err)
+    }
+
+    sessionService := api.NewSessionService(client, "chess_app", "your-secret-key-here")
+
+// NOTE: temporary users seed
+    authService.NewUser("Alice", "alice@ex.com", "1234567")
+    authService.NewUser("Bob", "bob@ex.com", "1234567")
+
+    gameManager := game.NewGameManager()
+
+    handlers := api.NewHandlers(gameManager, authService, sessionService)
+
+    wsHub := wsmanager.NewHub(wsmanager.Config{})
     go wsHub.Run()
 
     r := gin.Default()
@@ -22,16 +49,18 @@ func main() {
     r.LoadHTMLGlob("templates/*")
 
     r.GET("/", handlers.Home)
-
-    r.POST("/api/games", handlers.CreateGame)
-    r.GET("/game/:id", func(c *gin.Context) {})
-
     r.GET("/auth", handlers.AuthPage)
     r.POST("/api/login", handlers.Login)
 
-    r.GET("/ws", func(c *gin.Context) {
-        wsHub.ServeWebSocket(c)
-    })
+    protected := r.Group("/")
+    protected.Use(handlers.AuthMiddleware())
+    {
+	protected.POST("/api/games", handlers.CreateGame)
+    	protected.GET("/game/:id", func(c *gin.Context) {})
+    	protected.GET("/ws", func(c *gin.Context) {
+    	    wsHub.ServeWebSocket(c)
+    	})
+    }
 
     if err := r.Run(":8080"); err != nil {
         log.Fatal("Error starting server: ", err)
