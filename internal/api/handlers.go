@@ -40,6 +40,12 @@ func (h *Handlers) AuthPage(c *gin.Context) {
     })
 }
 
+func (h *Handlers) RegPage(c *gin.Context) {
+    c.HTML(http.StatusOK, "regpage.html", gin.H{
+        "Title": "Registration",
+    })
+}
+
 func (h *Handlers) Login(c *gin.Context) {
     if h.authService == nil {
         c.JSON(500, gin.H{"error": "Service not available"})
@@ -79,12 +85,18 @@ func (h *Handlers) Logout(c *gin.Context) {
     if err == nil {
         h.sessionService.DeleteSession(token)
     }
-    
+
     c.SetCookie("session_token", "", -1, "/", "", false, true)
     c.Header("HX-Redirect", "/")
     c.JSON(200, gin.H{"message": "Logged out successfully"})
 }
 
+/*
+ BUG:  Neither registers, nor throws an error.
+       Most likely related to db.
+ NOTE: Included login after registration,
+       so the function actually throws 401 on login stage.
+*/
 func (h *Handlers) Register(c *gin.Context) {
     if h.authService == nil {
         c.JSON(500, gin.H{"error": "Service not available"})
@@ -99,11 +111,31 @@ func (h *Handlers) Register(c *gin.Context) {
 
     user, err := h.authService.NewUser(req.Name, req.Email, req.Password)
     if err != nil {
-        c.JSON(400, gin.H{"error": err.Error()})
+        c.JSON(401, gin.H{"error": err.Error()})
         return
     }
 
-    c.JSON(201, gin.H{"message": "User created successfully", "user": user})
+    user, err = h.authService.Authenticate(req.Email, req.Password)
+    if err != nil {
+        c.JSON(401, gin.H{"error": err.Error()})
+  // WARNING:
+        log.Print(err)
+        return
+    }
+
+    session, err := h.sessionService.CreateSession(user.ID)
+    if err != nil {
+        c.JSON(500, gin.H{"error": "Failed to create session"})
+        return
+    }
+
+    c.SetCookie("session_token", session.Token, 3600*24, "/", "", false, true)
+
+    c.Header("HX-Redirect", "/")
+    c.JSON(200, gin.H{
+        "message": fmt.Sprintf("Welcome back, %s!", user.Name),
+        "session": "fake-session-12345",
+    })
 }
 
 func (h *Handlers) Home(c *gin.Context) {
@@ -125,6 +157,24 @@ func (h *Handlers) Home(c *gin.Context) {
     })
 }
 
+func (h *Handlers) GamePage(c *gin.Context) {
+    gameID := c.Param("id")
+
+    game := h.gameManager.GetGame(gameID)
+    if game == nil {
+        c.HTML(404, "error.html", gin.H{
+            "Error": "Game not found",
+        })
+        return
+    }
+
+    c.HTML(http.StatusOK, "game.html", gin.H{
+        "Title":  "Chess Game",
+        "GameID": gameID,
+        "Game":   game,
+    })
+}
+
 func (h *Handlers) CreateGame(c *gin.Context) {
     userID, exists := c.Get("user_id")
     if !exists {
@@ -136,7 +186,8 @@ func (h *Handlers) CreateGame(c *gin.Context) {
     // Create game with user info
     game := h.gameManager.CreateGame(userID.(string), userName.(string))
 
-    c.HTML(http.StatusOK, "game_created.html", gin.H{
+    c.Header("HX-Redirect", fmt.Sprintf("/game/%s", game.ID))
+    c.JSON(http.StatusOK, gin.H{
         "GameID": game.ID,
         "Color":  "white", 
     })
@@ -155,30 +206,17 @@ func (h *Handlers) JoinGame(c *gin.Context) {
         return
     }
 
-    userName := "Player" // Get from session or DB
-    
-    err := h.gameManager.JoinGame(gameID, userID.(string), userName)
+    userName, _ := c.Get("user_name")
+
+    err := h.gameManager.JoinGame(gameID, userID.(string), userName.(string))
     if err != nil {
         c.JSON(400, gin.H{"error": err.Error()})
         return
     }
 
-    c.HTML(http.StatusOK, "game_joined.html", gin.H{
+    c.Header("HX-Redirect", fmt.Sprintf("game/%s", gameID))
+    c.JSON(http.StatusOK, gin.H{
         "GameID": gameID,
         "Color":  "black",
-    })
-}
-
-func (h *Handlers) MyGames(c *gin.Context) {
-    userID, exists := c.Get("user_id")
-    if !exists {
-        c.JSON(401, gin.H{"error": "Not authenticated"})
-        return
-    }
-
-    games := h.gameManager.GetUserGames(userID.(string))
-
-    c.HTML(http.StatusOK, "my_games.html", gin.H{
-        "Games": games,
     })
 }

@@ -50,16 +50,17 @@ func main() {
 
     r.GET("/", handlers.Home)
     r.GET("/auth", handlers.AuthPage)
-    r.POST("/login", handlers.Login)
+    r.GET("/registration", handlers.RegPage)
+    r.POST("/api/login", handlers.Login)
 
     protected := r.Group("/")
     protected.Use(handlers.AuthMiddleware())
     {
-	protected.POST("/create-game", handlers.CreateGame)
-	protected.POST("/logout", handlers.Logout)
-	protected.POST("/join-game", handlers.JoinGame)
-    	//protected.GET("/game/:id", func(c *gin.Context) {})
-	protected.GET("/my-games", handlers.MyGames)
+	protected.POST("/api/create-game", handlers.CreateGame)
+	protected.POST("/api/registration", handlers.Register)
+	protected.POST("/api/logout", handlers.Logout)
+	protected.POST("/api/join-game", handlers.JoinGame)
+    	protected.GET("/game/:id", handlers.GamePage)
     	protected.GET("/ws", func(c *gin.Context) {
     	    wsHub.ServeWebSocket(c)
     	})
