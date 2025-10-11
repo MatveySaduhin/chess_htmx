@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-// NOTE: Creating MongoDB client (I don't like it)
+// NOTE: Creating MongoDB client (I don't like it like that - probably should implement init function)
     ctx := context.Background()
     client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://localhost:27017"))
     if err != nil {
@@ -50,13 +50,16 @@ func main() {
 
     r.GET("/", handlers.Home)
     r.GET("/auth", handlers.AuthPage)
-    r.POST("/api/login", handlers.Login)
+    r.POST("/login", handlers.Login)
 
     protected := r.Group("/")
     protected.Use(handlers.AuthMiddleware())
     {
-	protected.POST("/api/games", handlers.CreateGame)
-    	protected.GET("/game/:id", func(c *gin.Context) {})
+	protected.POST("/create-game", handlers.CreateGame)
+	protected.POST("/logout", handlers.Logout)
+	protected.POST("/join-game", handlers.JoinGame)
+    	//protected.GET("/game/:id", func(c *gin.Context) {})
+	protected.GET("/my-games", handlers.MyGames)
     	protected.GET("/ws", func(c *gin.Context) {
     	    wsHub.ServeWebSocket(c)
     	})

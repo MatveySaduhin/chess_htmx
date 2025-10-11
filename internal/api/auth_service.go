@@ -96,6 +96,19 @@ func (as AuthService) NewUser(name, email, password string) (*User, error) {
     return user, nil
 }
 
+func (as *AuthService) GetUserByID(userID primitive.ObjectID) (*User, error) {
+    collection := as.db.Collection("users")
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    var user User
+    err := collection.FindOne(ctx, bson.M{"_id": userID}).Decode(&user)
+    if err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
 func validate(email, password string) error {
     if email == "" {
         return fmt.Errorf("email is required")
