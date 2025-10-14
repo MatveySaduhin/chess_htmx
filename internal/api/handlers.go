@@ -157,24 +157,6 @@ func (h *Handlers) Home(c *gin.Context) {
     })
 }
 
-func (h *Handlers) GamePage(c *gin.Context) {
-    gameID := c.Param("id")
-
-    game := h.gameManager.GetGame(gameID)
-    if game == nil {
-        c.HTML(404, "error.html", gin.H{
-            "Error": "Game not found",
-        })
-        return
-    }
-
-    c.HTML(http.StatusOK, "game.html", gin.H{
-        "Title":  "Chess Game",
-        "GameID": gameID,
-        "Game":   game,
-    })
-}
-
 func (h *Handlers) CreateGame(c *gin.Context) {
     userID, exists := c.Get("user_id")
     if !exists {

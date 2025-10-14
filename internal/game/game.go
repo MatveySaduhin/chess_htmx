@@ -24,6 +24,31 @@ type Player struct {
     Ready    bool
 }
 
+func (gm *GameManager) CanUserAccessGame(userID, gameID string) bool {
+    gm.mutex.Lock()
+    defer gm.mutex.Unlock()
+
+    game, exists := gm.games[gameID]
+    if !exists {
+        return false
+    }
+    return game.White.UserID == userID || game.Black.UserID == userID
+}
+
+func (gm *GameManager) GetPlayerColor(userID, gameID string) chess.Color {
+    gm.mutex.Lock()
+    defer gm.mutex.Unlock()
+
+    game, exists := gm.games[gameID]
+    if !exists {
+        return chess.White // Default fallback
+    }
+    if game.White.UserID == userID {
+        return chess.White
+    }
+    return chess.Black
+}
+
 type GameManager struct {
     games map[string]*Game
     mutex sync.RWMutex

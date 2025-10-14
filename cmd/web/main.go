@@ -32,7 +32,7 @@ func main() {
 
     sessionService := api.NewSessionService(client, "chess_app", "your-secret-key-here")
 
-// NOTE: temporary users seed
+// NOTE: Temporary user seed
     authService.NewUser("Alice", "alice@ex.com", "1234567")
     authService.NewUser("Bob", "bob@ex.com", "1234567")
 
