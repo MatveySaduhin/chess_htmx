@@ -1,6 +1,7 @@
 package api
 
 import (
+    "strings"
     "net/http"
     "github.com/gin-gonic/gin"
 )
@@ -18,6 +19,6 @@ func (h *Handlers) GamePage(c *gin.Context) {
 
     c.HTML(http.StatusOK, "game.html", gin.H{
         "GameID": gameID,
-        "Color":  color,
+        "Color":  strings.ToLower(color.Name()),
     })
 }
