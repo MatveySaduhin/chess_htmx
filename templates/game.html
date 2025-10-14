@@ -3,13 +3,17 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Chess Game</title>
+    <title>Chess Game: {{.GameID}}</title>
+
+    <!-- jQuery (required by chessboard.js) -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 
+    <!-- Chessboard.js -->
     <link rel="stylesheet" href="/static/css/chessboard-1.0.0.min.css">
     <script src="/static/js/chessboard-1.0.0.min.js"></script>
-    <script type="module" src="/static/js/chess.js"></script>
-    <script type="module" src="/static/js/game.js"></script>
+
+    <!-- chess.js from CDN (global version) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 
     <style>
         body {
@@ -36,16 +40,17 @@
 </head>
 
 <body>
+    <div id="game-data" data-gameid="{{.GameID}}" data-color="{{.Color}}" style="display: none;"></div>
 
-    <div class="game-container" id="game-data" data-game-id="{{ .GameID }}" data-color="{{ .Color }}">
-
-        <h1>Chess Game</h1>
+    <!-- Game container -->
+    <div class="game-container">
+        <h1>Chess Game: {{.GameID}}</h1>
+        <p>You are playing as: <strong>{{.Color}}</strong></p>
         <div id="myBoard"></div>
         <div id="gameStatus"></div>
     </div>
 
-    <!-- <script src="/static/js/game.js"></script> -->
-
+    <script src="/static/js/game.js"></script>
 </body>
 
 </html>

@@ -1,23 +1,29 @@
-import { Chess } from '/static/js/chess.js';
+console.log('=== GAME.JS STARTING ===');
 
 $(document).ready(function() {
-    // === INITIALIZATION ===
-    // Get the game data passed from the Go template
-    const gameDataEl = $('#game-data');
-    const gameId = gameDataEl.data('GameID');
-    const playerColor = gameDataEl.data('Color'); // 'white' or 'black' Initialize the chess.js game logic
-    const game = new Chess(); 
+    console.log('1. Document ready');
 
+    const gameDataEl = $('#game-data');
+    console.log('2. Game data element found:', gameDataEl.length);
+    
+    const gameId = gameDataEl.data('gameid');
+    const playerColor = gameDataEl.data('color');
+    console.log('4. Parsed data - GameID:', gameId, 'Color:', playerColor);
+
+    console.log('5. Chessboard function available:', typeof Chessboard);
+    console.log('6. Chess function available:', typeof Chess);
+
+    // Initialize chess.js game logic (global Chess)
+    const game = new Chess(); 
+    
     // Initialize the chessboard.js UI
-    let board = null; // Will be initialized in onReady
+    let board = null;
     let $status = $('#gameStatus');
 
     // === CHESSBOARD.JS EVENT HANDLERS ===
-
-    // This function is called when a player starts dragging a piece.
     function onDragStart(source, piece, position, orientation) {
         // 1. Do not pick up pieces if the game is over.
-        if (game.isGameOver()) {
+        if (game.game_over()) {
             return false;
         }
 
@@ -28,10 +34,13 @@ $(document).ready(function() {
         }
 
         // 3. Only allow the player to move their own pieces.
-        if ((playerColor === 'white' && piece.search(/^b/) !== -1) ||
-            (playerColor === 'black' && piece.search(/^w/) !== -1)) {
+        const isPlayersTurn = (playerColor === 'white' && game.turn() === 'w') || 
+                             (playerColor === 'black' && game.turn() === 'b');
+        if (!isPlayersTurn) {
             return false;
         }
+
+        return true;
     }
 
     // This function is called when a player drops a piece.
@@ -69,13 +78,13 @@ $(document).ready(function() {
         let status = '';
         const moveColor = (game.turn() === 'b') ? "Black" : "White";
 
-        if (game.isCheckmate()) {
+        if (game.in_checkmate()) {
             status = `Game over, ${moveColor} is in checkmate.`;
-        } else if (game.isDraw()) {
+        } else if (game.in_draw()) {
             status = 'Game over, drawn position.';
         } else {
             status = `${moveColor} to move.`;
-            if (game.inCheck()) {
+            if (game.in_check()) {
                 status += ` ${moveColor} is in check.`;
             }
         }
@@ -94,6 +103,7 @@ $(document).ready(function() {
     };
 
     board = Chessboard('myBoard', config);
+    console.log('7. Chessboard initialized:', board);
+    console.log('=== GAME.JS COMPLETE ===');
     updateStatus();
-
 });
