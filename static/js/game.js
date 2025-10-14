@@ -99,7 +99,7 @@ $(document).ready(function() {
         onDragStart: onDragStart,
         onDrop: onDrop,
         onSnapEnd: onSnapEnd,
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+        pieceTheme: 'https://raw.githubusercontent.com/lichess-org/lila/master/public/piece/maestro/{piece}.svg',
     };
 
     board = Chessboard('myBoard', config);
