@@ -1,21 +1,12 @@
 package api
 
 import (
-	"chess_htmx/internal/game"
-	"chess_htmx/internal/wsmanager"
 	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
-
-type Handlers struct {
-    gameManager    *game.GameManager
-    authService    *AuthService
-    sessionService *SessionService
-    websocketHub   *wsmanager.GameHub
-}
 
 type LoginRequest struct {
     Email    string `form:"email" binding:"required,email"`
@@ -28,28 +19,42 @@ type RegistrationRequest struct {
     Password string `form:"password" binding:"required,min=6"`
 }
 
-func NewHandlers(gm *game.GameManager, as *AuthService, ss *SessionService, wh *wsmanager.GameHub) *Handlers {
-    return &Handlers{
-        authService: as,
-        gameManager: gm,
-        sessionService: ss,
-        websocketHub: wh,
+// Pages: 
+//
+func (h *Server) Home(c *gin.Context) {
+    var userName string
+    token, err := c.Cookie("session_token")
+    if err == nil {
+        session, err := h.sessionService.ValidateSession(token)
+        if err == nil {
+            user, err := h.authService.GetUserByID(session.UserID)
+            if err == nil {
+                userName = user.Name
+            }
+        }
     }
+
+    c.HTML(http.StatusOK, "home.html", gin.H{
+        "Title":    "Chess App",
+        "UserName": userName,
+    })
 }
 
-func (h *Handlers) AuthPage(c *gin.Context) {
+func (h *Server) AuthPage(c *gin.Context) {
     c.HTML(http.StatusOK, "auth.html", gin.H{
         "Title": "Authentication",
     })
 }
 
-func (h *Handlers) RegPage(c *gin.Context) {
+func (h *Server) RegPage(c *gin.Context) {
     c.HTML(http.StatusOK, "regpage.html", gin.H{
         "Title": "Registration",
     })
 }
 
-func (h *Handlers) Login(c *gin.Context) {
+// API:
+//
+func (h *Server) Login(c *gin.Context) {
     if h.authService == nil {
         c.JSON(500, gin.H{"error": "Service not available"})
         return
@@ -83,7 +88,7 @@ func (h *Handlers) Login(c *gin.Context) {
     })
 }
 
-func (h *Handlers) Logout(c *gin.Context) {
+func (h *Server) Logout(c *gin.Context) {
     token, err := c.Cookie("session_token")
     if err == nil {
         h.sessionService.DeleteSession(token)
@@ -100,7 +105,7 @@ func (h *Handlers) Logout(c *gin.Context) {
  NOTE: Included login after registration,
        so the function actually throws 401 on login stage.
 */
-func (h *Handlers) Register(c *gin.Context) {
+func (h *Server) Register(c *gin.Context) {
     if h.authService == nil {
         c.JSON(500, gin.H{"error": "Service not available"})
         return
@@ -140,23 +145,3 @@ func (h *Handlers) Register(c *gin.Context) {
         "session": "fake-session-12345",
     })
 }
-
-func (h *Handlers) Home(c *gin.Context) {
-    var userName string
-    token, err := c.Cookie("session_token")
-    if err == nil {
-        session, err := h.sessionService.ValidateSession(token)
-        if err == nil {
-            user, err := h.authService.GetUserByID(session.UserID)
-            if err == nil {
-                userName = user.Name
-            }
-        }
-    }
-
-    c.HTML(http.StatusOK, "home.html", gin.H{
-        "Title":    "Chess App",
-        "UserName": userName,
-    })
-}
-

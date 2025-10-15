@@ -7,7 +7,7 @@ import (
     "github.com/gin-gonic/gin"
 )
 
-func (h *Handlers) GamePage(c *gin.Context) {
+func (h *Server) GamePage(c *gin.Context) {
     gameID := c.Param("id")
     userID := c.GetString("user_id")
 
@@ -24,7 +24,7 @@ func (h *Handlers) GamePage(c *gin.Context) {
     })
 }
 
-func (h *Handlers) GameWebsocket(c *gin.Context) {
+func (h *Server) GameWebsocket(c *gin.Context) {
     gameID := c.Param("id")
     userID, exists := c.Get("user-id")
     if !exists {
@@ -40,7 +40,7 @@ func (h *Handlers) GameWebsocket(c *gin.Context) {
     h.websocketHub.ServeGameWebSocket(c, gameID, userID.(string))
 }
 
-func (h *Handlers) CreateGame(c *gin.Context) {
+func (h *Server) CreateGame(c *gin.Context) {
     userID, exists := c.Get("user_id")
     if !exists {
         c.JSON(401, gin.H{"error": "Not authenticated"})
@@ -58,7 +58,7 @@ func (h *Handlers) CreateGame(c *gin.Context) {
     })
 }
 
-func (h *Handlers) JoinGame(c *gin.Context) {
+func (h *Server) JoinGame(c *gin.Context) {
     userID, exists := c.Get("user_id")
     if !exists {
         c.JSON(401, gin.H{"error": "Not authenticated"})

@@ -29,7 +29,7 @@ func main() {
     websocketHub := initWebSocketHub()
     go websocketHub.Run()
 
-    handlers := api.NewHandlers(gameManager, authService, sessionService, websocketHub)
+    handlers := api.NewServer(gameManager, authService, sessionService, websocketHub)
 
     router := setupRouter(handlers)
     if err := router.Run(":8080"); err != nil {
@@ -37,7 +37,7 @@ func main() {
     }
 }
 
-func setupRouter(handlers *api.Handlers) *gin.Engine {
+func setupRouter(handlers *api.Server) *gin.Engine {
 	r := gin.Default()
 
 	r.Static("/static", "./static")

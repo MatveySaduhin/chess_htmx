@@ -2,7 +2,7 @@ package api
 
 import 	"github.com/gin-gonic/gin"
 
-func (h *Handlers) AuthMiddleware() gin.HandlerFunc {
+func (h *Server) AuthMiddleware() gin.HandlerFunc {
     return func(c *gin.Context) {
         token, err := c.Cookie("session_token")
         if err != nil {
