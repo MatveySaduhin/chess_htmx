@@ -20,7 +20,8 @@ type RegistrationRequest struct {
 }
 
 // Pages: 
-//
+// (Home probably don't belong here, creating separate file feels wrong)
+//  TODO: Implement feature rich Home screen so I can feel free to create separate file for it
 func (h *Server) Home(c *gin.Context) {
     var userName string
     token, err := c.Cookie("session_token")
