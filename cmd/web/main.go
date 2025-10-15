@@ -13,60 +13,90 @@ import (
 )
 
 func main() {
-// NOTE: Creating MongoDB client (I don't like it like that - probably should implement init function)
-    ctx := context.Background()
+    client := initMongoDB()
+    defer func() {
+	if err := client.Disconnect(context.Background()); err != nil {
+		log.Printf("Warning: Failed to disconnect from MongoDB: %v", err)
+	}
+    }()
+
+    authService := initAuthService(client)
+
+    sessionService := api.NewSessionService(client, "chess_app", "your-secret-key-here")
+
+    gameManager := game.NewGameManager()
+
+    websocketHub := initWebSocketHub()
+    go websocketHub.Run()
+
+    handlers := api.NewHandlers(gameManager, authService, sessionService, websocketHub)
+
+    router := setupRouter(handlers)
+    if err := router.Run(":8080"); err != nil {
+        log.Fatal("Error starting server: ", err)
+    }
+}
+
+func setupRouter(handlers *api.Handlers) *gin.Engine {
+	r := gin.Default()
+
+	r.Static("/static", "./static")
+	r.LoadHTMLGlob("templates/*")
+
+	public := r.Group("/")
+	{
+		public.GET("/", handlers.Home)
+		public.GET("/auth", handlers.AuthPage)
+		public.GET("/registration", handlers.RegPage)
+		public.POST("/api/login", handlers.Login)
+	}
+
+	protected := r.Group("/")
+	protected.Use(handlers.AuthMiddleware())
+	{
+		protected.POST("/api/create-game", handlers.CreateGame)
+		protected.POST("/api/registration", handlers.Register)
+		protected.POST("/api/logout", handlers.Logout)
+		protected.POST("/api/join-game", handlers.JoinGame)
+		protected.GET("/game/:id", handlers.GamePage)
+		protected.GET("/ws/game/:id", handlers.GameWebsocket)
+	}
+
+	return r
+}
+
+func initMongoDB() *mongo.Client {
     client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://localhost:27017"))
     if err != nil {
 	log.Fatal("Failed to connect to MongoDB: ", err)
     }
-    defer func() {
-	if err := client.Disconnect(ctx); err != nil {
-	    log.Fatal("Failed to disconnect from MongoDB", err)
-	}
-    }()
-
-    authService, err:= api.NewAuthService(client, "my-mongoDB")
-    if err != nil {
-	log.Fatal("Errror initializing authentication service: ", err)
+    if err := client.Ping(context.Background(), nil); err != nil {
+	log.Fatal("Failed to ping MongoDB: ", err)
     }
-
-    sessionService := api.NewSessionService(client, "chess_app", "your-secret-key-here")
-
-// NOTE: Temporary user seed
-    authService.NewUser("Alice", "alice@ex.com", "1234567")
-    authService.NewUser("Bob", "bob@ex.com", "1234567")
-
-    gameManager := game.NewGameManager()
-
-    handlers := api.NewHandlers(gameManager, authService, sessionService)
-
-    wsHub := wsmanager.NewHub(wsmanager.Config{})
-    go wsHub.Run()
-
-    r := gin.Default()
-
-    r.Static("/static", "./static")
-    r.LoadHTMLGlob("templates/*")
-
-    r.GET("/", handlers.Home)
-    r.GET("/auth", handlers.AuthPage)
-    r.GET("/registration", handlers.RegPage)
-    r.POST("/api/login", handlers.Login)
-
-    protected := r.Group("/")
-    protected.Use(handlers.AuthMiddleware())
-    {
-	protected.POST("/api/create-game", handlers.CreateGame)
-	protected.POST("/api/registration", handlers.Register)
-	protected.POST("/api/logout", handlers.Logout)
-	protected.POST("/api/join-game", handlers.JoinGame)
-    	protected.GET("/game/:id", handlers.GamePage)
-    	protected.GET("/ws", func(c *gin.Context) {
-    	    wsHub.ServeWebSocket(c)
-    	})
-    }
-
-    if err := r.Run(":8080"); err != nil {
-        log.Fatal("Error starting server: ", err)
-    }
+    return client
 }
+
+func initAuthService(client *mongo.Client) *api.AuthService {
+    authService, err := api.NewAuthService(client, "chess_app")
+    if err != nil {
+    	log.Fatal("Error initializing authentication service: ", err)
+    }
+    // Seed users - log errors but don't fail
+    if _, err := authService.NewUser("Alice", "alice@ex.com", "1234567"); err != nil {
+    	log.Printf("Note: Failed to create Alice: %v", err)
+    }
+    if _, err := authService.NewUser("Bob", "bob@ex.com", "1234567"); err != nil {
+    	log.Printf("Note: Failed to create Bob: %v", err)
+    }
+    return authService
+}
+
+func initWebSocketHub() *wsmanager.GameHub {
+	hub := wsmanager.NewGameHub(wsmanager.Config{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+	})
+	go hub.Run()
+	return hub
+}
+

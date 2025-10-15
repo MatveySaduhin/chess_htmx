@@ -2,6 +2,7 @@ package api
 
 import (
 	"chess_htmx/internal/game"
+	"chess_htmx/internal/wsmanager"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,9 +11,10 @@ import (
 )
 
 type Handlers struct {
-    gameManager *game.GameManager
-    authService *AuthService
+    gameManager    *game.GameManager
+    authService    *AuthService
     sessionService *SessionService
+    websocketHub   *wsmanager.GameHub
 }
 
 type LoginRequest struct {
@@ -26,11 +28,12 @@ type RegistrationRequest struct {
     Password string `form:"password" binding:"required,min=6"`
 }
 
-func NewHandlers(gm *game.GameManager, as *AuthService, ss *SessionService) *Handlers {
+func NewHandlers(gm *game.GameManager, as *AuthService, ss *SessionService, wh *wsmanager.GameHub) *Handlers {
     return &Handlers{
         authService: as,
         gameManager: gm,
         sessionService: ss,
+        websocketHub: wh,
     }
 }
 
@@ -157,48 +160,3 @@ func (h *Handlers) Home(c *gin.Context) {
     })
 }
 
-func (h *Handlers) CreateGame(c *gin.Context) {
-    userID, exists := c.Get("user_id")
-    if !exists {
-        c.JSON(401, gin.H{"error": "Not authenticated"})
-        return
-    }
-    userName, _ := c.Get("user_name")
-
-    // Create game with user info
-    game := h.gameManager.CreateGame(userID.(string), userName.(string))
-
-    c.Header("HX-Redirect", fmt.Sprintf("/game/%s", game.ID))
-    c.JSON(http.StatusOK, gin.H{
-        "GameID": game.ID,
-        "Color":  "white", 
-    })
-}
-
-func (h *Handlers) JoinGame(c *gin.Context) {
-    userID, exists := c.Get("user_id")
-    if !exists {
-        c.JSON(401, gin.H{"error": "Not authenticated"})
-        return
-    }
-
-    gameID := c.PostForm("game_id") // Get from form data instead of URL param
-    if gameID == "" {
-        c.JSON(400, gin.H{"error": "Game ID is required"})
-        return
-    }
-
-    userName, _ := c.Get("user_name")
-
-    err := h.gameManager.JoinGame(gameID, userID.(string), userName.(string))
-    if err != nil {
-        c.JSON(400, gin.H{"error": err.Error()})
-        return
-    }
-
-    c.Header("HX-Redirect", fmt.Sprintf("game/%s", gameID))
-    c.JSON(http.StatusOK, gin.H{
-        "GameID": gameID,
-        "Color":  "black",
-    })
-}

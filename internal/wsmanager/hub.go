@@ -7,74 +7,114 @@ import (
     "github.com/gorilla/websocket"
 )
 
+type GameHub struct {
+    games      map[string]*GameRoom
+    register   chan *Client
+    unregister chan *Client
+    upgrader   *websocket.Upgrader
+}
+
+type GameRoom struct {
+    clients   map[*Client]bool
+    broadcast chan []byte
+    gameID    string
+}
+
+type Client struct {
+    hub  *GameHub
+    conn *websocket.Conn
+    send chan []byte
+    gameID string
+    userID string
+}
+
 type Config struct {
     CheckOrigin func(r *http.Request) bool
     ReadBufferSize int
     WriteBufferSize int
 }
 
-type Client struct {
-    hub  *Hub
-    conn *websocket.Conn
-    send chan []byte
-}
-
-type Hub struct {
-    clients    map[*Client]bool
-    broadcast  chan []byte
-    register   chan *Client
-    unregister chan *Client
-    upgrader   *websocket.Upgrader
-}
-
-func NewHub(config Config) *Hub {
+func NewGameHub(config Config) *GameHub {
     upgrader := &websocket.Upgrader{
         CheckOrigin:     config.CheckOrigin,
         ReadBufferSize:  config.ReadBufferSize,
         WriteBufferSize: config.WriteBufferSize,
-
     }
-
+    // NOTE: Allow all for development
     if upgrader.CheckOrigin == nil {
-        // allow only same origin
         upgrader.CheckOrigin = func(r *http.Request) bool {
-            return r.Header.Get("Origin") == "trusted-domain.com"
+            return true // Allow all for development
         }
     }
 
-    return &Hub{
-        broadcast:  make(chan []byte),
+    return &GameHub{
+        games:      make(map[string]*GameRoom),
         register:   make(chan *Client),
         unregister: make(chan *Client),
-        clients:    make(map[*Client]bool),
         upgrader:   upgrader,
     }
 }
 
-func (h *Hub) Run() {
+func (h *GameHub) Run() {
     for {
         select {
         case client := <-h.register:
-            h.clients[client] = true
+            h.registerClient(client)
         case client := <-h.unregister:
-            if _, ok := h.clients[client]; ok {
-                delete(h.clients, client)
+            h.unregisterClient(client)
+        }
+    }
+}
+
+func (r *GameRoom) run() {
+    for message := range r.broadcast {
+        for client := range r.clients {
+            select {
+            case client.send <- message:
+            default:
                 close(client.send)
+                delete(r.clients, client)
             }
-        case message := <-h.broadcast:
-            for client := range h.clients {
-                select {
-                case client.send <- message:
-                default:
-                    close(client.send)
-                    delete(h.clients, client)
-                }
+        }
+    }
+
+    // Clean up when broadcast channel is closed
+    for client := range r.clients {
+        close(client.send)
+        delete(r.clients, client)
+    }
+}
+
+func (h *GameHub) registerClient(client *Client) {
+    // Get or create game room
+    room, exists := h.games[client.gameID]
+    if !exists {
+        room = &GameRoom{
+            clients: make(map[*Client]bool),
+            broadcast: make(chan []byte),
+            gameID: client.gameID,
+        }
+        h.games[client.gameID] = room
+        go room.run()
+    }
+    room.clients[client] = true
+}
+
+func (h *GameHub) unregisterClient(client *Client) {
+    if room, exists := h.games[client.gameID]; exists {
+        if _, clientExists := room.clients[client]; clientExists {
+            delete(room.clients, client)
+            close(client.send)
+
+            // Clean up empty rooms
+            if len(room.clients) == 0 {
+                delete(h.games, client.gameID)
             }
         }
     }
 }
 
-func (hub *Hub) ServeWebSocket (c *gin.Context) {
+func (hub *GameHub) ServeGameWebSocket (c *gin.Context, gameID, userID string) {
     conn, err := hub.upgrader.Upgrade(c.Writer, c.Request, nil)
     if err != nil {
         log.Println("WebSocket upgrade failed:", err)
@@ -85,16 +125,18 @@ func (hub *Hub) ServeWebSocket (c *gin.Context) {
         hub:  hub,
         conn: conn,
         send: make(chan []byte, 256),
+        gameID: gameID,
+        userID: userID,
     }
 
-    client.hub.register <- client
+    hub.register <- client
     go client.writePump()
     go client.readPump()
 }
 
 func (c *Client) readPump() {
     defer func() {
-        c.hub.unregister <- c  // Unregister when done
+        c.hub.unregister <- c
         c.conn.Close()
     }()
 
@@ -108,8 +150,10 @@ func (c *Client) readPump() {
         }
 
         if messageType == websocket.TextMessage {
-            // Process the message (in your case, chess moves)
-            c.hub.broadcast <- message
+            // Broadcast to all clients in the same game room
+            if room, exists := c.hub.games[c.gameID]; exists {
+                room.broadcast <- message
+            }
         }
     }
 }
@@ -119,20 +163,14 @@ func (c *Client) writePump() {
         c.conn.Close()
     }()
 
-    for {
-        select {
-        case message, ok := <-c.send:
-            if !ok {
-                // Hub closed the channel
-                c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-                return
-            }
-
-            err := c.conn.WriteMessage(websocket.TextMessage, message)
-            if err != nil {
-                log.Printf("Write error: %v", err)
-                return
-            }
+    for message := range c.send {
+        err := c.conn.WriteMessage(websocket.TextMessage, message)
+        if err != nil {
+            log.Printf("Write error: %v", err)
+            return
         }
     }
+
+    // Channel was closed - send close message
+    c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 }
