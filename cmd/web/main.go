@@ -26,7 +26,7 @@ func main() {
 
     gameManager := game.NewGameManager()
 
-    websocketHub := initWebSocketHub()
+    websocketHub := initWebSocketHub(gameManager)
     go websocketHub.Run()
 
     handlers := api.NewServer(gameManager, authService, sessionService, websocketHub)
@@ -91,11 +91,11 @@ func initAuthService(client *mongo.Client) *api.AuthService {
     return authService
 }
 
-func initWebSocketHub() *wsmanager.GameHub {
+func initWebSocketHub(gm *game.GameManager) *wsmanager.GameHub {
 	hub := wsmanager.NewGameHub(wsmanager.Config{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-	})
+	}, gm)
 	go hub.Run()
 	return hub
 }

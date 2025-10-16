@@ -8,6 +8,11 @@ import (
     "encoding/hex"
 )
 
+type GameManager struct {
+    games map[string]*Game
+    mutex sync.RWMutex
+}
+
 type Game struct {
     ID     string
     chess  *chess.Game
@@ -22,6 +27,12 @@ type Player struct {
     Name     string
     Side     chess.Color
     Ready    bool
+}
+
+func (g *Game) ChessGame() *chess.Game {
+    g.mutex.RLock()
+    defer g.mutex.RUnlock()
+    return g.chess
 }
 
 func (gm *GameManager) CanUserAccessGame(userID, gameID string) bool {
@@ -47,11 +58,6 @@ func (gm *GameManager) GetPlayerColor(userID, gameID string) chess.Color {
         return chess.White
     }
     return chess.Black
-}
-
-type GameManager struct {
-    games map[string]*Game
-    mutex sync.RWMutex
 }
 
 func NewGameManager() *GameManager {

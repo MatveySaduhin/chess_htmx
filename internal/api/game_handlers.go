@@ -26,13 +26,13 @@ func (h *Server) GamePage(c *gin.Context) {
 
 func (h *Server) GameWebsocket(c *gin.Context) {
     gameID := c.Param("id")
-    userID, exists := c.Get("user-id")
+    userID, exists := c.Get("user_id")
     if !exists {
         c.JSON(401, gin.H{"error": "Not authenticated"})
         return
     }
 
-    if h.gameManager.CanUserAccessGame(userID.(string), gameID) {
+    if !h.gameManager.CanUserAccessGame(userID.(string), gameID) {
         c.JSON(403, gin.H{"error": "Access denied"})
         return
     }
@@ -79,7 +79,7 @@ func (h *Server) JoinGame(c *gin.Context) {
         return
     }
 
-    c.Header("HX-Redirect", fmt.Sprintf("game/%s", gameID))
+    c.Header("HX-Redirect", fmt.Sprintf("/game/%s", gameID))
     c.JSON(http.StatusOK, gin.H{
         "GameID": gameID,
         "Color":  "black",
