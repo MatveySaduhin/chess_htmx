@@ -1,28 +1,12 @@
 console.log("=== GAME.JS STARTING ===");
 
 $(document).ready(function () {
-  console.log("Firefox debug - GameJS loaded");
-  console.log("Window location:", window.location.href);
-  console.log("WebSocket available:", typeof WebSocket !== "undefined");
-
-  try {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/game/test`;
-    console.log("WebSocket URL would be:", wsUrl);
-  } catch (e) {
-    console.error("Error constructing WebSocket URL:", e);
-  }
-  console.log("1. Document ready");
-
   const gameDataEl = $("#game-data");
   console.log("2. Game data element found:", gameDataEl.length);
 
   const gameId = gameDataEl.data("gameid");
   const playerColor = gameDataEl.data("color");
   console.log("4. Parsed data - GameID:", gameId, "Color:", playerColor);
-
-  console.log("5. Chessboard function available:", typeof Chessboard);
-  console.log("6. Chess function available:", typeof Chess);
 
   // Initialize chess.js game logic (global Chess)
   const game = new Chess();
@@ -56,18 +40,22 @@ $(document).ready(function () {
     };
   }
 
+  let gameActive = false;
+
   function handleWebSocketMessage(data) {
     console.log("Received WebSocket message:", data);
 
     switch (data.type) {
       case "move":
-        // Apply opponent's move
+        // Apply opponent's move using SAN
         const moveData = data.payload;
-        game.move({
-          from: moveData.from,
-          to: moveData.to,
-          promotion: moveData.promotion || "q",
-        });
+
+        if (moveData.move) {
+          // Use the SAN move directly
+          game.move(moveData.move);
+        } else {
+          console.error("No move in payload:", moveData);
+        }
 
         // Update board with new FEN from server
         if (moveData.fen) {
@@ -79,9 +67,40 @@ $(document).ready(function () {
         updateStatus();
         break;
 
+      case "game_state":
+        // FEN contains everything needed
+        const gameState = data.payload;
+        game.load(gameState.fen);
+        board.position(gameState.fen);
+        updateStatus();
+        console.log("Game state synchronized from FEN");
+        break;
+
       case "error":
         console.error("Server error:", data.payload.error);
         alert("Move error: " + data.payload.error);
+        break;
+
+      case "game_start":
+        gameActive = true;
+        alert("Game starting! Both players connected.");
+        document.getElementById("myBoard").classList.remove("board-disabled");
+        // Update UI to show game is active
+        break;
+
+      case "game_waiting":
+        gameActive = false;
+        document.getElementById("myBoard").classList.add("board-disabled");
+        document.getElementById("gameStatus").innerHTML =
+          "Waiting for opponent to connect...";
+        board.draggable = false; // Disable moves
+        break;
+
+      case "player_disconnected":
+        gameActive = false;
+        document.getElementById("gameStatus").innerHTML =
+          "⚠️ Opponent disconnected. Game paused.";
+        board.draggable = false; // Disable moves
         break;
 
       default:
@@ -94,22 +113,29 @@ $(document).ready(function () {
       const moveData = {
         from: move.from,
         to: move.to,
-        promotion: move.promotion || "q",
+        flags: move.flags || "",
       };
 
       const message = {
         type: "move",
-        payload: moveData,
+        payload: move.san,
       };
 
       ws.send(JSON.stringify(message));
       console.log("Sent move to server:", message);
+      console.log("San of the move:", move.san);
     } else {
       console.error("WebSocket not connected");
     }
   }
   // === CHESSBOARD.JS EVENT HANDLERS ===
   function onDragStart(source, piece, position, orientation) {
+    // 0. Check if the game is active
+    if (!gameActive) {
+      console.log("Game not active - can't move");
+      return false;
+    }
+
     // 1. Do not pick up pieces if the game is over.
     if (game.game_over()) {
       return false;
@@ -148,12 +174,7 @@ $(document).ready(function () {
       return "snapback";
     }
 
-    // **IMPORTANT**: If the move is legal, send it to the server.
-    // We will implement WebSockets later, for now we log it.
     console.log("Move made:", move);
-    // TODO: sendMoveToServer(move);
-
-    // Send valid move to server via WebSocket
 
     sendMoveToServer(move);
     updateStatus();

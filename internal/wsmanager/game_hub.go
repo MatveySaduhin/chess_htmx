@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+        "fmt"
+        "strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -25,6 +27,8 @@ type GameRoom struct {
     broadcast chan []byte
     gameID    string
     game      *chess.Game
+    whiteConnected bool
+    blackConnected bool
 }
 
 type Client struct {
@@ -47,9 +51,8 @@ type WSMessage struct {
 }
 
 type MoveMessage struct {
-    From      string `json:"from"`
-    To        string `json:"to"`
-    Promotion string `json:"promotion,omitempty"`
+    Move      string `json:"move"`
+//  Promotion string `json:"promotion,omitempty"`
     FEN       string `json:"fen"`
 }
 
@@ -115,11 +118,9 @@ func (r *GameRoom) run() {
 
 func (h *GameHub) registerClient(client *Client) {
     log.Printf("registerClient: gameID=%s, userID=%s", client.gameID, client.userID)
-    
+
     room, exists := h.games[client.gameID]
     if !exists {
-        log.Printf("Creating new room for game: %s", client.gameID)
-        
         // Always create the room - the game might be created later
         room = &GameRoom{
             clients: make(map[*Client]bool),
@@ -129,21 +130,63 @@ func (h *GameHub) registerClient(client *Client) {
         }
         h.games[client.gameID] = room
         go room.run()
-        
         log.Printf("Room created for game: %s", client.gameID)
     }
-    
+
     room.clients[client] = true
+
+    color := h.gameManager.GetPlayerColor(client.userID, client.gameID)
+    if color == chess.White {
+            room.whiteConnected = true
+    } else {
+            room.blackConnected = true
+    }
+
+    log.Printf("Player %s (%s) connected. White: %t, Black: %t", 
+        client.userID, color, room.whiteConnected, room.blackConnected)
+
+    h.sendGameState(client)
     log.Printf("Client added to room. Total clients: %d", len(room.clients))
+
+    if room.whiteConnected && room.blackConnected {
+        h.broadcastGameStart(room)
+    } else {
+        h.broadcastWaiting(room)
+    }
+}
+
+func (h *GameHub) broadcastPlayerDisconnected(room *GameRoom, color chess.Color) {
+    message := WSMessage{
+        Type: "player_disconnected", 
+        Payload: map[string]interface{}{
+            "message": fmt.Sprintf("%s player disconnected", color.Name()),
+            "color":   strings.ToLower(color.Name()),
+            "fen":     room.game.FEN(),
+        },
+    }
+
+    msgBytes, _ := json.Marshal(message)
+    room.broadcast <- msgBytes
+
+    log.Printf("Broadcasted %s player disconnect in game %s", color.Name(), room.gameID)
 }
 
 func (h *GameHub) unregisterClient(client *Client) {
     if room, exists := h.games[client.gameID]; exists {
         if _, clientExists := room.clients[client]; clientExists {
+            // Update connection status
+            color := h.gameManager.GetPlayerColor(client.userID, client.gameID)
+            if color == chess.White {
+                room.whiteConnected = false
+            } else {
+                room.blackConnected = false
+            }
+
             delete(room.clients, client)
             close(client.send)
 
-            // Clean up empty rooms
+            // Notify other player about disconnection
+            h.broadcastPlayerDisconnected(room, color)
             if len(room.clients) == 0 {
                 delete(h.games, client.gameID)
             }
@@ -172,6 +215,7 @@ func (hub *GameHub) ServeGameWebSocket (c *gin.Context, gameID, userID string) {
 }
 
 func (h *GameHub) handleGameMessage(client *Client, message []byte) {
+    log.Printf("handleGameMessage called for client %s", client.userID)
     var wsMsg WSMessage
     if err := json.Unmarshal(message, &wsMsg); err != nil {
         log.Printf("Invalid message format: %v", err)
@@ -188,56 +232,36 @@ func (h *GameHub) handleGameMessage(client *Client, message []byte) {
     }
 }
 
-func (h *GameHub) handleMoveMessage(client *Client, payload interface{}) {
-    log.Printf("handleMoveMessage: client %s in game %s", client.userID,client.gameID)
-
-    moveData, ok := payload.(map[string]interface{})
+func (h *GameHub) handleMoveMessage(client *Client, payload any) {
+    moveStr, ok := payload.(string)
     if !ok {
-        log.Printf("Invalid move payload")
-        return
-    }
-
-    from, ok1 := moveData["from"].(string)
-    to, ok2 := moveData["to"].(string)
-    if !ok1 || !ok2 {
-        log.Printf("Invalid move coordinates")
         return
     }
 
     room, exists := h.games[client.gameID]
     if !exists || room.game == nil {
-        log.Printf("Game not found or not initialized")
         return
     }
 
-    log.Printf("Processing move: %s to %s", from, to)
-    // Create move string (e.g., "e2e4", "e7e8q")
-    moveStr := from + to
-    if promotion, ok := moveData["promotion"].(string); ok && promotion != "" {
-        moveStr += promotion
-    }
-
-    // Parse the move
-    move, err := chess.LongAlgebraicNotation{}.Decode(room.game.Position(), moveStr)
+    // Parse using the standard notation
+    move, err := chess.AlgebraicNotation{}.Decode(room.game.Position(), moveStr)
     if err != nil {
-        h.sendError(client, "Invalid move format: "+err.Error())
+        h.sendError(client, "Invalid move: "+err.Error())
         return
     }
 
-    // Try to apply the move - this validates it automatically
+    // Apply the move
     if err := room.game.Move(move); err != nil {
         h.sendError(client, "Invalid move: "+err.Error())
         return
     }
 
-    // Move is valid - broadcast to all clients
+    // Broadcast the SAN move to all clients
     response := WSMessage{
         Type: "move",
         Payload: MoveMessage{
-            From: from,
-            To: to,
-            Promotion: move.Promo().String(),
-            FEN: room.game.FEN(), // Send updated position
+            Move: moveStr,  // Send back the same SAN
+            FEN:  room.game.FEN(),
         },
     }
 
@@ -292,6 +316,52 @@ func (h *GameHub) getUserName(userID string) string {
     // You might need to pass authService to GameHub or use a different approach
     return "Player" // Placeholder
 }
+
+func (h *GameHub) sendGameState(client *Client) {
+    room, exists := h.games[client.gameID]
+    if !exists || room.game == nil {
+        return
+    }
+
+    // Just send the FEN - it's the complete game state
+    gameState := WSMessage{
+        Type: "game_state", 
+        Payload: map[string]string{
+            "fen": room.game.FEN(),
+        },
+    }
+
+    msgBytes, _ := json.Marshal(gameState)
+    client.send <- msgBytes
+}
+
+func (h *GameHub) broadcastGameStart(room *GameRoom) {
+    message := WSMessage{
+        Type: "game_start",
+        Payload: map[string]interface{}{
+            "message": "Both players connected! Game starting...",
+            "fen":     room.game.FEN(),
+        },
+    }
+
+    msgBytes, _ := json.Marshal(message)
+    room.broadcast <- msgBytes
+}
+
+func (h *GameHub) broadcastWaiting(room *GameRoom) {
+    message := WSMessage{
+        Type: "game_waiting",
+        Payload: map[string]interface{}{
+            "message": "Waiting for opponent to connect...",
+            "whiteConnected": room.whiteConnected,
+            "blackConnected": room.blackConnected,
+        },
+    }
+    
+    msgBytes, _ := json.Marshal(message)
+    room.broadcast <- msgBytes
+}
+
 func (c *Client) readPump() {
     defer func() {
         c.hub.unregister <- c
@@ -308,10 +378,8 @@ func (c *Client) readPump() {
         }
 
         if messageType == websocket.TextMessage {
-            // Broadcast to all clients in the same game room
-            if room, exists := c.hub.games[c.gameID]; exists {
-                room.broadcast <- message
-            }
+            log.Printf("Recieved raw data from the client %s: %s", c.userID, string(message))
+            c.hub.handleGameMessage(c, message)
         }
     }
 }
@@ -324,13 +392,12 @@ func (c *Client) writePump() {
     }()
 
     for message := range c.send {
-        log.Printf("📨 Client %s writing message to WebSocket", c.userID)
         err := c.conn.WriteMessage(websocket.TextMessage, message)
         if err != nil {
             log.Printf("❌ Write error for client %s: %v", c.userID, err)
             return
         }
-        log.Printf("✅ Client %s successfully wrote message", c.userID)
+        log.Printf("✅ Client %s: successfully wrote message to client", c.userID)
     }
 
     log.Printf("🔌 Client %s send channel closed", c.userID)

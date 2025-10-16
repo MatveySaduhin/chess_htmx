@@ -6,6 +6,7 @@ import (
 	"chess_htmx/internal/wsmanager"
 	"context"
 	"log"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -41,6 +42,16 @@ func setupRouter(handlers *api.Server) *gin.Engine {
 	r := gin.Default()
 
 	r.Static("/static", "./static")
+//	 NOTE: func below is here only for dev
+//       TODO: proper cache handling for release
+	r.Use(func(c *gin.Context) {
+	    if strings.HasPrefix(c.Request.URL.Path, "/static/") {
+	        // No cache for development
+	        c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	    }
+	    c.Next()
+	})
+
 	r.LoadHTMLGlob("templates/*")
 
 	public := r.Group("/")
