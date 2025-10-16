@@ -6,6 +6,7 @@ import (
 	"chess_htmx/internal/wsmanager"
 	"context"
 	"log"
+	"time"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,18 @@ func main() {
     sessionService := api.NewSessionService(client, "chess_app", "your-secret-key-here")
 
     gameManager := game.NewGameManager()
+    go func() {
+        ticker := time.NewTicker(30 * time.Minute)
+        defer ticker.Stop()
+
+        for {
+            select {
+            case <-ticker.C:
+                gameManager.CleanupOldGames()
+                log.Println("Cleaned up old games")
+            }
+        }
+    }()
 
     websocketHub := initWebSocketHub(gameManager)
     go websocketHub.Run()
@@ -68,6 +81,8 @@ func setupRouter(handlers *api.Server) *gin.Engine {
 		protected.POST("/api/create-game", handlers.CreateGame)
 		protected.POST("/api/registration", handlers.Register)
 		protected.POST("/api/logout", handlers.Logout)
+		protected.POST("/api/quick-play", handlers.QuickPlay)
+		protected.POST("/api/quick-game-computer", func(ctx *gin.Context) {})
 		protected.POST("/api/join-game", handlers.JoinGame)
 		protected.GET("/game/:id", handlers.GamePage)
 		protected.GET("/ws/game/:id", handlers.GameWebsocket)

@@ -40,6 +40,44 @@ func (h *Server) GameWebsocket(c *gin.Context) {
     h.websocketHub.ServeGameWebSocket(c, gameID, userID.(string))
 }
 
+func (h *Server) QuickPlay(c *gin.Context) {
+    userID, exists := c.Get("user_id")
+    if !exists {
+        c.JSON(401, gin.H{"error": "Not authenticated"})
+        return
+    }
+    userName, _ := c.Get("user_name")
+
+    // 1. Look for available games (games waiting for players)
+    availableGame := h.gameManager.FindAvailableGame()
+    
+    if availableGame != nil {
+        // 2. Join existing game
+        err := h.gameManager.JoinGame(availableGame.ID, userID.(string), userName.(string))
+        if err != nil {
+            c.JSON(400, gin.H{"error": err.Error()})
+            return
+        }
+        
+        c.Header("HX-Redirect", fmt.Sprintf("/game/%s", availableGame.ID))
+        c.JSON(http.StatusOK, gin.H{
+            "GameID": availableGame.ID,
+            "Color":  "black",
+            "message": "Joined existing game",
+        })
+    } else {
+        // 3. Create new game if none available
+        game := h.gameManager.CreateGame(userID.(string), userName.(string))
+        
+        c.Header("HX-Redirect", fmt.Sprintf("/game/%s", game.ID))
+        c.JSON(http.StatusOK, gin.H{
+            "GameID": game.ID,
+            "Color":  "white",
+            "message": "Created new game - waiting for opponent",
+        })
+    }
+}
+
 func (h *Server) CreateGame(c *gin.Context) {
     userID, exists := c.Get("user_id")
     if !exists {

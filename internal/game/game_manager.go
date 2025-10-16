@@ -3,9 +3,11 @@ package game
 import (
     "fmt"
     "sync"
-    "github.com/notnil/chess"
+    "time"
     "crypto/rand"
     "encoding/hex"
+
+    "github.com/notnil/chess"
 )
 
 type GameManager struct {
@@ -14,12 +16,13 @@ type GameManager struct {
 }
 
 type Game struct {
-    ID     string
-    chess  *chess.Game
-    White  *Player
-    Black  *Player
-    Status string
-    mutex  sync.RWMutex
+    ID        string
+    chess     *chess.Game
+    White     *Player
+    Black     *Player
+    Status    string
+    CreatedAt time.Time
+    mutex     sync.RWMutex
 }
 
 type Player struct {
@@ -44,6 +47,20 @@ func (gm *GameManager) CanUserAccessGame(userID, gameID string) bool {
         return false
     }
     return game.White.UserID == userID || game.Black.UserID == userID
+}
+
+func (gm *GameManager) FindAvailableGame() *Game {
+    gm.mutex.RLock()
+    defer gm.mutex.RUnlock()
+
+    for _, game := range gm.games {
+        // A game is available if it has only one player (white) 
+        // and black slot is empty
+        if game.White != nil && game.Black == nil {
+            return game
+        }
+    }
+    return nil
 }
 
 func (gm *GameManager) GetPlayerColor(userID, gameID string) chess.Color {
@@ -71,9 +88,10 @@ func (gm *GameManager) CreateGame(userID, userName string) *Game {
     defer gm.mutex.Unlock()
 
     game := &Game{
-        ID:     gm.generateUniqueGameID(),
-        chess:  chess.NewGame(),
-        Status: "waiting",
+        ID:        gm.generateUniqueGameID(),
+        chess:     chess.NewGame(),
+        Status:    "waiting",
+        CreatedAt: time.Now(),
         White: &Player{
             UserID: userID,
             Name: userName,
@@ -120,6 +138,18 @@ func (gm *GameManager) JoinGame(gameID, userID, userName string) error {
     }
 
     return nil
+}
+
+func (gm *GameManager) CleanupOldGames() {
+    gm.mutex.Lock()
+    defer gm.mutex.Unlock()
+    
+    for id, game := range gm.games {
+        // Remove games older than 1 hour with only one player
+        if game.Black == nil && time.Since(game.CreatedAt) > time.Hour {
+            delete(gm.games, id)
+        }
+    }
 }
 
 func (gm *GameManager) GetWaitingGames() []*Game {
