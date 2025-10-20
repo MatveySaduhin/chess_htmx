@@ -1,9 +1,8 @@
 [build]
 builder = "NIXPACKS"
-buildcommand = "go build -o main ./cmd/web"
 
 [deploy]
-startCommand = "./main"
+startCommand = "./out"
 
 [variables]
 MONGODB_URI = "your-atlas-connection-string"
