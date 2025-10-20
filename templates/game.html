@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chess Game: {{.GameID}}</title>
 
     <!-- jQuery (required by chessboard.js) -->
@@ -15,44 +16,127 @@
     <!-- chess.js from CDN (global version) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
     <style>
-        body {
-            font-family: sans-serif;
-            display: flex;
-            justify-content: center;
-            margin-top: 50px;
-        }
-
-        .game-container {
-            text-align: center;
-        }
-
         .board-disabled {
             opacity: 0.6;
             pointer-events: none;
         }
 
         #myBoard {
-            width: 600px;
+            max-width: 600px;
+            margin: 0 auto;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            border-radius: 8px;
+            overflow: hidden;
         }
 
-        #gameStatus {
-            margin-top: 10px;
-            font-size: 1.2em;
-            font-weight: bold;
+        .player-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
+        .player-badge.white {
+            background-color: #f3f4f6;
+            color: #374151;
+            border: 2px solid #d1d5db;
+        }
+
+        .player-badge.black {
+            background-color: #374151;
+            color: white;
+            border: 2px solid #1f2937;
         }
     </style>
 </head>
 
-<body>
-    <div id="game-data" data-gameid="{{.GameID}}" data-color="{{.Color}}" style="display: none;"></div>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen py-8">
+    <div id="game-data" data-gameid="{{.GameID}}" data-color="{{.Color}}" data-current-user="{{.CurrentUserName}}"
+        data-white-player="{{.WhitePlayerName}}" data-black-player="{{.BlackPlayerName}}" style="display: none;">
+    </div>
 
     <!-- Game container -->
-    <div class="game-container">
-        <h1>Chess Game: {{.GameID}}</h1>
-        <p>You are playing as: <strong>{{.Color}}</strong></p>
-        <div id="myBoard"></div>
-        <div id="gameStatus"></div>
+    <div class="max-w-4xl mx-auto px-4">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2 flex items-center justify-center gap-3">
+                <span class="text-5xl">♞</span>
+                Chess Game
+            </h1>
+            <p class="text-gray-600 text-lg">Game ID: <span
+                    class="font-mono font-semibold text-indigo-600">{{.GameID}}</span></p>
+        </div>
+
+        <!-- Game info panel -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                <!-- White Player -->
+                <div class="text-center">
+                    <div class="flex items-center justify-center gap-3 mb-2">
+                        <div class="w-3 h-3 bg-white border-2 border-gray-300 rounded-full"></div>
+                        <span class="text-sm text-gray-500">White</span>
+                    </div>
+                    <div class="font-semibold text-gray-800">
+                        {{if .WhitePlayerName}}
+                        {{.WhitePlayerName}}
+                        {{if .IsWhite}}<span class="text-blue-500 text-sm ml-2">(You)</span>{{end}}
+                        {{else}}
+                        <span class="text-gray-400">Waiting...</span>
+                        {{end}}
+                    </div>
+                </div>
+
+                <!-- Game Info -->
+                <div class="text-center space-y-2">
+                    <div class="flex items-center justify-center gap-2">
+                        <span class="text-sm text-gray-500">Turn:</span>
+                        <span class="text-lg font-semibold text-gray-800" id="playerTurn">White</span>
+                    </div>
+                </div>
+
+                <!-- Black Player -->
+                <div class="text-center">
+                    <div class="flex items-center justify-center gap-3 mb-2">
+                        <div class="w-3 h-3 bg-gray-800 rounded-full"></div>
+                        <span class="text-sm text-gray-500">Black</span>
+                    </div>
+                    <div class="font-semibold text-gray-800">
+                        {{if .BlackPlayerName}}
+                        {{.BlackPlayerName}}
+                        {{if .IsBlack}}<span class="text-blue-500 text-sm ml-2">(You)</span>{{end}}
+                        {{else}}
+                        <span class="text-gray-400">Waiting...</span>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chess board -->
+        <div class="bg-white rounded-xl shadow-2xl p-6 mb-6">
+            <div id="myBoard"></div>
+        </div>
+
+        <!-- Game status -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-semibold text-gray-800 mb-4">Game Status</h3>
+            <div id="gameStatus" class="text-lg font-medium text-gray-700">
+                Loading game...
+            </div>
+        </div>
+
+        <!-- Connection status -->
+        <div class="mt-4 text-center">
+            <div id="connectionStatus"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium">
+                <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                <span>Connected</span>
+            </div>
+        </div>
     </div>
 
     <script src="/static/js/game.js"></script>

@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/notnil/chess"
 	"net/http"
 	"strings"
 )
@@ -10,6 +11,7 @@ import (
 func (s *Server) GamePage(c *gin.Context) {
 	gameID := c.Param("id")
 	userID := c.GetString("user_id")
+	currentUserName, _ := c.Get("user_name")
 
 	if !s.gameManager.CanUserAccessGame(userID, gameID) {
 		c.Redirect(http.StatusFound, "/")
@@ -18,9 +20,26 @@ func (s *Server) GamePage(c *gin.Context) {
 
 	color := s.gameManager.GetPlayerColor(userID, gameID)
 
+	game := s.gameManager.GetGame(gameID)
+
+	var whitePlayerName, blackPlayerName string
+
+	if game != nil {
+		if game.White != nil {
+			whitePlayerName = game.White.Name
+		}
+		if game.Black != nil {
+			blackPlayerName = game.Black.Name
+		}
+	}
 	c.HTML(http.StatusOK, "game.html", gin.H{
-		"GameID": gameID,
-		"Color":  strings.ToLower(color.Name()),
+		"GameID":          gameID,
+		"Color":           strings.ToLower(color.Name()),
+		"CurrentUserName": currentUserName,
+		"WhitePlayerName": whitePlayerName,
+		"BlackPlayerName": blackPlayerName,
+		"IsWhite":         color == chess.White,
+		"IsBlack":         color == chess.Black,
 	})
 }
 
