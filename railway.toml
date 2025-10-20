@@ -1,0 +1,9 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "./main"
+
+[variables]
+MONGODB_URI = "your-atlas-connection-string"
+SESSION_SECRET = "your-secret-key"

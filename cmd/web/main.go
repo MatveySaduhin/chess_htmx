@@ -6,6 +6,7 @@ import (
 	"chess_htmx/internal/wsmanager"
 	"context"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -15,7 +16,21 @@ import (
 )
 
 func main() {
-	client := initMongoDB()
+//  Get env variables
+    mongoURI := os.Getenv("MONGODB_URI")
+    if mongoURI == "" {
+        mongoURI = "mongodb://localhost:27017/chess"
+    }
+    sessionSecret := os.Getenv("SESSION_SECRET")
+    if sessionSecret == "" {
+        sessionSecret = "fallback-secret-change-in-production"
+    }
+    port := os.Getenv("PORT")
+    if port == "" {
+        port = "8080"
+    }
+
+	client := initMongoDB(mongoURI)
 	defer func() {
 		if err := client.Disconnect(context.Background()); err != nil {
 			log.Printf("Warning: Failed to disconnect from MongoDB: %v", err)
@@ -98,8 +113,8 @@ func setupRouter(handlers *api.Server) *gin.Engine {
 	return r
 }
 
-func initMongoDB() *mongo.Client {
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://localhost:27017"))
+func initMongoDB(URI string) *mongo.Client {
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(URI))
 	if err != nil {
 		log.Fatal("Failed to connect to MongoDB: ", err)
 	}
@@ -113,10 +128,6 @@ func initAuthService(client *mongo.Client) *api.AuthService {
 	authService, err := api.NewAuthService(client, "chess_app")
 	if err != nil {
 		log.Fatal("Error initializing authentication service: ", err)
-	}
-	// Seed an admin user. On subsequent runs, this will fail gracefully due to the unique email index.
-	if _, err := authService.NewUser("Admin", "admin@chess.com", "adminpassword", "admin"); err != nil {
-		log.Printf("Note: Failed to create Admin user (might already exist): %v", err)
 	}
 	// Seed users - log errors but don't fail
 	if _, err := authService.NewUser("Alice", "alice@ex.com", "1234567", "user"); err != nil {
