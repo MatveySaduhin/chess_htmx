@@ -1,125 +1,125 @@
 package api
 
 import (
-    "fmt"
-    "strings"
-    "net/http"
-    "github.com/gin-gonic/gin"
+	"fmt"
+	"github.com/gin-gonic/gin"
+	"net/http"
+	"strings"
 )
 
-func (h *Server) GamePage(c *gin.Context) {
-    gameID := c.Param("id")
-    userID := c.GetString("user_id")
+func (s *Server) GamePage(c *gin.Context) {
+	gameID := c.Param("id")
+	userID := c.GetString("user_id")
 
-    if !h.gameManager.CanUserAccessGame(userID, gameID) {
-        c.Redirect(http.StatusFound, "/")
-        return
-    }
+	if !s.gameManager.CanUserAccessGame(userID, gameID) {
+		c.Redirect(http.StatusFound, "/")
+		return
+	}
 
-    color := h.gameManager.GetPlayerColor(userID, gameID)
+	color := s.gameManager.GetPlayerColor(userID, gameID)
 
-    c.HTML(http.StatusOK, "game.html", gin.H{
-        "GameID": gameID,
-        "Color":  strings.ToLower(color.Name()),
-    })
+	c.HTML(http.StatusOK, "game.html", gin.H{
+		"GameID": gameID,
+		"Color":  strings.ToLower(color.Name()),
+	})
 }
 
-func (h *Server) GameWebsocket(c *gin.Context) {
-    gameID := c.Param("id")
-    userID, exists := c.Get("user_id")
-    if !exists {
-        c.JSON(401, gin.H{"error": "Not authenticated"})
-        return
-    }
+func (s *Server) GameWebsocket(c *gin.Context) {
+	gameID := c.Param("id")
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(401, gin.H{"error": "Not authenticated"})
+		return
+	}
 
-    if !h.gameManager.CanUserAccessGame(userID.(string), gameID) {
-        c.JSON(403, gin.H{"error": "Access denied"})
-        return
-    }
+	if !s.gameManager.CanUserAccessGame(userID.(string), gameID) {
+		c.JSON(403, gin.H{"error": "Access denied"})
+		return
+	}
 
-    h.websocketHub.ServeGameWebSocket(c, gameID, userID.(string))
+	s.websocketHub.ServeGameWebSocket(c, gameID, userID.(string))
 }
 
-func (h *Server) QuickPlay(c *gin.Context) {
-    userID, exists := c.Get("user_id")
-    if !exists {
-        c.JSON(401, gin.H{"error": "Not authenticated"})
-        return
-    }
-    userName, _ := c.Get("user_name")
+func (s *Server) QuickPlay(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(401, gin.H{"error": "Not authenticated"})
+		return
+	}
+	userName, _ := c.Get("user_name")
 
-    // 1. Look for available games (games waiting for players)
-    availableGame := h.gameManager.FindAvailableGame()
-    
-    if availableGame != nil {
-        // 2. Join existing game
-        err := h.gameManager.JoinGame(availableGame.ID, userID.(string), userName.(string))
-        if err != nil {
-            c.JSON(400, gin.H{"error": err.Error()})
-            return
-        }
-        
-        c.Header("HX-Redirect", fmt.Sprintf("/game/%s", availableGame.ID))
-        c.JSON(http.StatusOK, gin.H{
-            "GameID": availableGame.ID,
-            "Color":  "black",
-            "message": "Joined existing game",
-        })
-    } else {
-        // 3. Create new game if none available
-        game := h.gameManager.CreateGame(userID.(string), userName.(string))
-        
-        c.Header("HX-Redirect", fmt.Sprintf("/game/%s", game.ID))
-        c.JSON(http.StatusOK, gin.H{
-            "GameID": game.ID,
-            "Color":  "white",
-            "message": "Created new game - waiting for opponent",
-        })
-    }
+	// 1. Look for available games (games waiting for players)
+	availableGame := s.gameManager.FindAvailableGame()
+
+	if availableGame != nil {
+		// 2. Join existing game
+		err := s.gameManager.JoinGame(availableGame.ID, userID.(string), userName.(string))
+		if err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.Header("HX-Redirect", fmt.Sprintf("/game/%s", availableGame.ID))
+		c.JSON(http.StatusOK, gin.H{
+			"GameID":  availableGame.ID,
+			"Color":   "black",
+			"message": "Joined existing game",
+		})
+	} else {
+		// 3. Create new game if none available
+		game := s.gameManager.CreateGame(userID.(string), userName.(string))
+
+		c.Header("HX-Redirect", fmt.Sprintf("/game/%s", game.ID))
+		c.JSON(http.StatusOK, gin.H{
+			"GameID":  game.ID,
+			"Color":   "white",
+			"message": "Created new game - waiting for opponent",
+		})
+	}
 }
 
-func (h *Server) CreateGame(c *gin.Context) {
-    userID, exists := c.Get("user_id")
-    if !exists {
-        c.JSON(401, gin.H{"error": "Not authenticated"})
-        return
-    }
-    userName, _ := c.Get("user_name")
+func (s *Server) CreateGame(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(401, gin.H{"error": "Not authenticated"})
+		return
+	}
+	userName, _ := c.Get("user_name")
 
-    // Create game with user info
-    game := h.gameManager.CreateGame(userID.(string), userName.(string))
+	// Create game with user info
+	game := s.gameManager.CreateGame(userID.(string), userName.(string))
 
-    c.Header("HX-Redirect", fmt.Sprintf("/game/%s", game.ID))
-    c.JSON(http.StatusOK, gin.H{
-        "GameID": game.ID,
-        "Color":  "white", 
-    })
+	c.Header("HX-Redirect", fmt.Sprintf("/game/%s", game.ID))
+	c.JSON(http.StatusOK, gin.H{
+		"GameID": game.ID,
+		"Color":  "white",
+	})
 }
 
-func (h *Server) JoinGame(c *gin.Context) {
-    userID, exists := c.Get("user_id")
-    if !exists {
-        c.JSON(401, gin.H{"error": "Not authenticated"})
-        return
-    }
+func (s *Server) JoinGame(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(401, gin.H{"error": "Not authenticated"})
+		return
+	}
 
-    gameID := c.PostForm("game_id") // Get from form data instead of URL param
-    if gameID == "" {
-        c.JSON(400, gin.H{"error": "Game ID is required"})
-        return
-    }
+	gameID := c.PostForm("game_id") // Get from form data instead of URL param
+	if gameID == "" {
+		c.JSON(400, gin.H{"error": "Game ID is required"})
+		return
+	}
 
-    userName, _ := c.Get("user_name")
+	userName, _ := c.Get("user_name")
 
-    err := h.gameManager.JoinGame(gameID, userID.(string), userName.(string))
-    if err != nil {
-        c.JSON(400, gin.H{"error": err.Error()})
-        return
-    }
+	err := s.gameManager.JoinGame(gameID, userID.(string), userName.(string))
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
 
-    c.Header("HX-Redirect", fmt.Sprintf("/game/%s", gameID))
-    c.JSON(http.StatusOK, gin.H{
-        "GameID": gameID,
-        "Color":  "black",
-    })
+	c.Header("HX-Redirect", fmt.Sprintf("/game/%s", gameID))
+	c.JSON(http.StatusOK, gin.H{
+		"GameID": gameID,
+		"Color":  "black",
+	})
 }

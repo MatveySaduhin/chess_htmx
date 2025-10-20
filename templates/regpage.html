@@ -1,51 +1,63 @@
+{{define "regpage.html"}}
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.Title}}</title>
+    <title>Chess App - Register</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 
 <body class="bg-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <!-- Header -->
-        <header class="text-center mb-12">
-            <h1 class="text-4xl font-bold text-gray-800 mb-2">♞ Registration</h1>
-        </header>
-
-        <!-- Main Actions -->
-        <div class="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6 space-y-4">
-
-            <form hx-post="/api/registration">
-                <!-- Fields -->
-                <div class=" border-t pt-4">
-                    <div class="flex space-x-2">
-                        <input type="text" id="name" name="name" placeholder="Name"
-                            class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            required>
-                    </div>
-                    <div class="flex space-x-2">
-                        <input type="email" id="email" name="email" placeholder="Email"
-                            class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            required>
-                    </div>
-                    <div class="flex space-x-2">
-                        <input type="password" name="password" id="password" placeholder="Password"
-                            class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            required>
-                    </div>
+    <nav class="bg-white shadow-md">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <a href="/" class="text-2xl font-bold text-gray-800">♞ Chess App</a>
+                <div class="flex items-center space-x-4">
+                    <a href="/auth" class="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Sign In</a>
+                    <a href="/registration"
+                        class="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Register</a>
                 </div>
-                <!-- Create an account -->
-                <button type="submit" class="w-full py-3 bg-green-600 text-white rounded-lg font-semibold
-                        hover:bg-green-700 transition-colors duration-200">
-                    Create an account!
-                </button>
-            </form>
+            </div>
         </div>
-    </div>
+    </nav>
+
+    <main class="container mx-auto px-4 py-8">
+        <div class="max-w-md mx-auto">
+            <div class="bg-white rounded-lg shadow-lg p-8">
+                <header class="text-center mb-6">
+                    <h1 class="text-3xl font-bold text-gray-800">Create an Account</h1>
+                </header>
+                <form hx-post="/api/registration" hx-target="#result" hx-swap="outerHTML">
+                    <div class="space-y-4">
+                        <div>
+                            <label for="name" class="block text-sm font-medium text-gray-700">Name</label>
+                            <input type="text" id="name" name="name" required
+                                class="mt-1 w-full px-3 py-2 border rounded-lg">
+                        </div>
+                        <div>
+                            <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+                            <input type="email" id="email" name="email" required
+                                class="mt-1 w-full px-3 py-2 border rounded-lg">
+                        </div>
+                        <div>
+                            <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                            <input type="password" name="password" id="password" required
+                                class="mt-1 w-full px-3 py-2 border rounded-lg">
+                        </div>
+                    </div>
+                    <div id="result" class="mt-4 min-h-[1.5rem]"></div>
+                    <button type="submit"
+                        class="mt-4 w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">
+                        Create Account
+                    </button>
+                </form>
+            </div>
+        </div>
+    </main>
 </body>
 
 </html>
+{{end}}

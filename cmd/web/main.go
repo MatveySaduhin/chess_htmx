@@ -6,63 +6,63 @@ import (
 	"chess_htmx/internal/wsmanager"
 	"context"
 	"log"
-	"time"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
-    client := initMongoDB()
-    defer func() {
-	if err := client.Disconnect(context.Background()); err != nil {
-		log.Printf("Warning: Failed to disconnect from MongoDB: %v", err)
+	client := initMongoDB()
+	defer func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			log.Printf("Warning: Failed to disconnect from MongoDB: %v", err)
+		}
+	}()
+
+	authService := initAuthService(client)
+
+	sessionService := api.NewSessionService(client, "chess_app", "your-secret-key-here")
+
+	gameManager := game.NewGameManager()
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				gameManager.CleanupOldGames()
+				log.Println("Cleaned up old games")
+			}
+		}
+	}()
+
+	websocketHub := initWebSocketHub(gameManager)
+	go websocketHub.Run()
+
+	handlers := api.NewServer(gameManager, authService, sessionService, websocketHub)
+
+	router := setupRouter(handlers)
+	if err := router.Run(":8080"); err != nil {
+		log.Fatal("Error starting server: ", err)
 	}
-    }()
-
-    authService := initAuthService(client)
-
-    sessionService := api.NewSessionService(client, "chess_app", "your-secret-key-here")
-
-    gameManager := game.NewGameManager()
-    go func() {
-        ticker := time.NewTicker(30 * time.Minute)
-        defer ticker.Stop()
-
-        for {
-            select {
-            case <-ticker.C:
-                gameManager.CleanupOldGames()
-                log.Println("Cleaned up old games")
-            }
-        }
-    }()
-
-    websocketHub := initWebSocketHub(gameManager)
-    go websocketHub.Run()
-
-    handlers := api.NewServer(gameManager, authService, sessionService, websocketHub)
-
-    router := setupRouter(handlers)
-    if err := router.Run(":8080"); err != nil {
-        log.Fatal("Error starting server: ", err)
-    }
 }
 
 func setupRouter(handlers *api.Server) *gin.Engine {
 	r := gin.Default()
 
 	r.Static("/static", "./static")
-//	 NOTE: func below is here only for dev
-//       TODO: proper cache handling for release
+	//	 NOTE: func below is here only for dev
+	//       TODO: proper cache handling for release
 	r.Use(func(c *gin.Context) {
-	    if strings.HasPrefix(c.Request.URL.Path, "/static/") {
-	        // No cache for development
-	        c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-	    }
-	    c.Next()
+		if strings.HasPrefix(c.Request.URL.Path, "/static/") {
+			// No cache for development
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+		}
+		c.Next()
 	})
 
 	r.LoadHTMLGlob("templates/*")
@@ -73,48 +73,65 @@ func setupRouter(handlers *api.Server) *gin.Engine {
 		public.GET("/auth", handlers.AuthPage)
 		public.GET("/registration", handlers.RegPage)
 		public.POST("/api/login", handlers.Login)
+		public.POST("/api/registration", handlers.Register)
 	}
 
 	protected := r.Group("/")
 	protected.Use(handlers.AuthMiddleware())
 	{
 		protected.POST("/api/create-game", handlers.CreateGame)
-		protected.POST("/api/registration", handlers.Register)
 		protected.POST("/api/logout", handlers.Logout)
 		protected.POST("/api/quick-play", handlers.QuickPlay)
 		protected.POST("/api/quick-game-computer", func(ctx *gin.Context) {})
 		protected.POST("/api/join-game", handlers.JoinGame)
 		protected.GET("/game/:id", handlers.GamePage)
 		protected.GET("/ws/game/:id", handlers.GameWebsocket)
+
+		admin := protected.Group("/admin")
+		admin.Use(handlers.AdminMiddleware())
+		{
+			admin.GET("/", handlers.AdminPage)
+			admin.POST("/rename-user", handlers.RenameUser)
+		}
 	}
 
 	return r
 }
 
 func initMongoDB() *mongo.Client {
-    client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://localhost:27017"))
-    if err != nil {
-	log.Fatal("Failed to connect to MongoDB: ", err)
-    }
-    if err := client.Ping(context.Background(), nil); err != nil {
-	log.Fatal("Failed to ping MongoDB: ", err)
-    }
-    return client
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://localhost:27017"))
+	if err != nil {
+		log.Fatal("Failed to connect to MongoDB: ", err)
+	}
+	if err := client.Ping(context.Background(), nil); err != nil {
+		log.Fatal("Failed to ping MongoDB: ", err)
+	}
+	return client
 }
 
 func initAuthService(client *mongo.Client) *api.AuthService {
-    authService, err := api.NewAuthService(client, "chess_app")
-    if err != nil {
-    	log.Fatal("Error initializing authentication service: ", err)
-    }
-    // Seed users - log errors but don't fail
-    if _, err := authService.NewUser("Alice", "alice@ex.com", "1234567"); err != nil {
-    	log.Printf("Note: Failed to create Alice: %v", err)
-    }
-    if _, err := authService.NewUser("Bob", "bob@ex.com", "1234567"); err != nil {
-    	log.Printf("Note: Failed to create Bob: %v", err)
-    }
-    return authService
+	authService, err := api.NewAuthService(client, "chess_app")
+	if err != nil {
+		log.Fatal("Error initializing authentication service: ", err)
+	}
+	// Seed an admin user. On subsequent runs, this will fail gracefully due to the unique email index.
+	if _, err := authService.NewUser("Admin", "admin@chess.com", "adminpassword", "admin"); err != nil {
+		log.Printf("Note: Failed to create Admin user (might already exist): %v", err)
+	}
+	// Seed users - log errors but don't fail
+	if _, err := authService.NewUser("Alice", "alice@ex.com", "1234567", "user"); err != nil {
+		log.Printf("Note: Failed to create Alice: %v", err)
+	}
+	if _, err := authService.NewUser("Bob", "bob@ex.com", "1234567", "user"); err != nil {
+		log.Printf("Note: Failed to create Bob: %v", err)
+	}
+	if _, err := authService.NewUser("Kim", "kim@ex.com", "1234567", "user"); err != nil {
+		log.Printf("Note: Failed to create Bob: %v", err)
+	}
+	if _, err := authService.NewUser("Harrier", "harrier@ex.com", "1234567", "user"); err != nil {
+		log.Printf("Note: Failed to create Bob: %v", err)
+	}
+	return authService
 }
 
 func initWebSocketHub(gm *game.GameManager) *wsmanager.GameHub {
@@ -125,4 +142,3 @@ func initWebSocketHub(gm *game.GameManager) *wsmanager.GameHub {
 	go hub.Run()
 	return hub
 }
-
