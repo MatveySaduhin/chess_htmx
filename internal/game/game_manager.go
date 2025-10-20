@@ -89,7 +89,7 @@ func (gm *GameManager) CreateGame(userID, userName string) *Game {
 	defer gm.mutex.Unlock()
 
 	game := &Game{
-		ID:        gm.generateUniqueGameID(),
+		ID:        gm.GenerateUniqueGameID(),
 		chess:     chess.NewGame(),
 		Status:    "waiting",
 		CreatedAt: time.Now(),
@@ -229,7 +229,7 @@ func generateGameID() string {
 	return hex.EncodeToString(bytes)
 }
 
-func (gm *GameManager) generateUniqueGameID() string {
+func (gm *GameManager) GenerateUniqueGameID() string {
 	for {
 		id := generateGameID()
 		if _, exists := gm.games[id]; !exists {

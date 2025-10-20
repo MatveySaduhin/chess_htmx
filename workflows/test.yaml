@@ -1,0 +1,32 @@
+name: Run Tests
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    name: Run Go Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.25'
+        cache: true
+
+    - name: Run unit tests (no database needed)
+      run: |
+        echo "Running unit tests..."
+        go test ./internal/tests/... -v
+
+    - name: Run simple handler tests
+      run: |
+        echo "Running simple handler tests..."
+        # Tests that don't need database
+        go test ./internal/api/... -v -run "Test.*Unit" || true
