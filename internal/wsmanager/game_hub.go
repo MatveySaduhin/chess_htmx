@@ -227,6 +227,8 @@ func (h *GameHub) handleGameMessage(client *Client, message []byte) {
 		h.handleMoveMessage(client, wsMsg.Payload)
 	case "chat":
 		h.handleChatMessage(client, wsMsg.Payload)
+	case "surrender":
+		h.handleSurrenderMessage(client)
 	default:
 		log.Printf("Unknown message type: %s", wsMsg.Type)
 	}
@@ -243,25 +245,23 @@ func (h *GameHub) handleMoveMessage(client *Client, payload any) {
 		return
 	}
 
-	// Parse using the standard notation
-	move, err := chess.AlgebraicNotation{}.Decode(room.game.Position(), moveStr)
+	fen, err := h.gameManager.ApplySANMove(client.gameID, moveStr)
 	if err != nil {
 		h.sendError(client, "Invalid move: "+err.Error())
 		return
 	}
 
-	// Apply the move
-	if err := room.game.Move(move); err != nil {
-		h.sendError(client, "Invalid move: "+err.Error())
-		return
+	// Keep room.game in sync with the authoritative game manager state
+	gameObj := h.gameManager.GetGame(client.gameID)
+	if gameObj != nil {
+		room.game = gameObj.ChessGame()
 	}
 
-	// Broadcast the SAN move to all clients
 	response := WSMessage{
 		Type: "move",
 		Payload: MoveMessage{
-			Move: moveStr, // Send back the same SAN
-			FEN:  room.game.FEN(),
+			Move: moveStr,
+			FEN:  fen,
 		},
 	}
 
@@ -402,4 +402,30 @@ func (c *Client) writePump() {
 
 	log.Printf("🔌 Client %s send channel closed", c.userID)
 	c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+}
+
+func (h *GameHub) handleSurrenderMessage(client *Client) {
+	room, exists := h.games[client.gameID]
+	if !exists {
+		return
+	}
+
+	winner, result, fen, err := h.gameManager.SurrenderGame(client.gameID, client.userID)
+	if err != nil {
+		h.sendError(client, "Surrender failed: "+err.Error())
+		return
+	}
+
+	response := WSMessage{
+		Type: "game_over",
+		Payload: map[string]interface{}{
+			"reason": "surrender",
+			"winner": winner,
+			"result": result,
+			"fen":    fen,
+		},
+	}
+
+	msgBytes, _ := json.Marshal(response)
+	room.broadcast <- msgBytes
 }
