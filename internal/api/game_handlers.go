@@ -1,12 +1,23 @@
 package api
 
 import (
+	"chess_htmx/internal/game"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/notnil/chess"
 	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/notnil/chess"
 )
+
+type CreateSinglePlayerRequest struct {
+	Mode      string `form:"mode" binding:"required"`
+	UserColor string `form:"user_color"`
+}
+
+type SurrenderRequest struct {
+	GameID string `json:"game_id" binding:"required"`
+}
 
 func (s *Server) GamePage(c *gin.Context) {
 	gameID := c.Param("id")
@@ -19,19 +30,21 @@ func (s *Server) GamePage(c *gin.Context) {
 	}
 
 	color := s.gameManager.GetPlayerColor(userID, gameID)
-
-	game := s.gameManager.GetGame(gameID)
+	gameObj := s.gameManager.GetGame(gameID)
+	if gameObj == nil {
+		c.Redirect(http.StatusFound, "/")
+		return
+	}
 
 	var whitePlayerName, blackPlayerName string
 
-	if game != nil {
-		if game.White != nil {
-			whitePlayerName = game.White.Name
-		}
-		if game.Black != nil {
-			blackPlayerName = game.Black.Name
-		}
+	if gameObj.White != nil {
+		whitePlayerName = gameObj.White.Name
 	}
+	if gameObj.Black != nil {
+		blackPlayerName = gameObj.Black.Name
+	}
+
 	c.HTML(http.StatusOK, "game.html", gin.H{
 		"GameID":          gameID,
 		"Color":           strings.ToLower(color.Name()),
@@ -40,6 +53,11 @@ func (s *Server) GamePage(c *gin.Context) {
 		"BlackPlayerName": blackPlayerName,
 		"IsWhite":         color == chess.White,
 		"IsBlack":         color == chess.Black,
+		"Mode":            string(gameObj.Mode),
+		"IsSinglePlayer":  gameObj.Mode != game.ModeMultiplayer,
+		"IsOpeningStudy":  gameObj.Mode == game.ModeOpeningStudy,
+		"IsVsComputer":    gameObj.Mode == game.ModeVsComputer,
+		"InitialFEN":      gameObj.FEN(),
 	})
 }
 
@@ -67,11 +85,8 @@ func (s *Server) QuickPlay(c *gin.Context) {
 	}
 	userName, _ := c.Get("user_name")
 
-	// 1. Look for available games (games waiting for players)
 	availableGame := s.gameManager.FindAvailableGame()
-
 	if availableGame != nil {
-		// 2. Join existing game
 		err := s.gameManager.JoinGame(availableGame.ID, userID.(string), userName.(string))
 		if err != nil {
 			c.JSON(400, gin.H{"error": err.Error()})
@@ -84,17 +99,16 @@ func (s *Server) QuickPlay(c *gin.Context) {
 			"Color":   "black",
 			"message": "Joined existing game",
 		})
-	} else {
-		// 3. Create new game if none available
-		game := s.gameManager.CreateGame(userID.(string), userName.(string))
-
-		c.Header("HX-Redirect", fmt.Sprintf("/game/%s", game.ID))
-		c.JSON(http.StatusOK, gin.H{
-			"GameID":  game.ID,
-			"Color":   "white",
-			"message": "Created new game - waiting for opponent",
-		})
+		return
 	}
+
+	gameObj := s.gameManager.CreateGame(userID.(string), userName.(string))
+	c.Header("HX-Redirect", fmt.Sprintf("/game/%s", gameObj.ID))
+	c.JSON(http.StatusOK, gin.H{
+		"GameID":  gameObj.ID,
+		"Color":   "white",
+		"message": "Created new game - waiting for opponent",
+	})
 }
 
 func (s *Server) CreateGame(c *gin.Context) {
@@ -105,12 +119,11 @@ func (s *Server) CreateGame(c *gin.Context) {
 	}
 	userName, _ := c.Get("user_name")
 
-	// Create game with user info
-	game := s.gameManager.CreateGame(userID.(string), userName.(string))
+	gameObj := s.gameManager.CreateGame(userID.(string), userName.(string))
 
-	c.Header("HX-Redirect", fmt.Sprintf("/game/%s", game.ID))
+	c.Header("HX-Redirect", fmt.Sprintf("/game/%s", gameObj.ID))
 	c.JSON(http.StatusOK, gin.H{
-		"GameID": game.ID,
+		"GameID": gameObj.ID,
 		"Color":  "white",
 	})
 }
@@ -122,7 +135,7 @@ func (s *Server) JoinGame(c *gin.Context) {
 		return
 	}
 
-	gameID := c.PostForm("game_id") // Get from form data instead of URL param
+	gameID := c.PostForm("game_id")
 	if gameID == "" {
 		c.JSON(400, gin.H{"error": "Game ID is required"})
 		return
@@ -140,5 +153,84 @@ func (s *Server) JoinGame(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"GameID": gameID,
 		"Color":  "black",
+	})
+}
+
+func (s *Server) CreateSinglePlayerGame(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
+	userName, _ := c.Get("user_name")
+
+	var req CreateSinglePlayerRequest
+	if err := c.ShouldBind(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid form: " + err.Error()})
+		return
+	}
+
+	switch req.Mode {
+	case string(game.ModeVsComputer):
+		userColor := chess.White
+		if strings.ToLower(req.UserColor) == "black" {
+			userColor = chess.Black
+		}
+
+		gameObj := s.gameManager.CreateVsComputerGame(userID.(string), userName.(string), userColor)
+		c.Header("HX-Redirect", fmt.Sprintf("/game/%s", gameObj.ID))
+		c.JSON(http.StatusOK, gin.H{
+			"GameID": gameObj.ID,
+			"Mode":   req.Mode,
+		})
+		return
+
+	case string(game.ModeOpeningStudy):
+		gameObj := s.gameManager.CreateOpeningStudyGame(userID.(string), userName.(string))
+		c.Header("HX-Redirect", fmt.Sprintf("/game/%s", gameObj.ID))
+		c.JSON(http.StatusOK, gin.H{
+			"GameID": gameObj.ID,
+			"Mode":   req.Mode,
+		})
+		return
+
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unknown single player mode"})
+	}
+}
+
+func (s *Server) SurrenderGame(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req SurrenderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	if !s.gameManager.CanUserAccessGame(userID, req.GameID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	gameObj := s.gameManager.GetGame(req.GameID)
+	if gameObj == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Game not found"})
+		return
+	}
+
+	winner, result, fen, err := s.gameManager.SurrenderGame(req.GameID, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"game_id": req.GameID,
+		"winner":  winner,
+		"result":  result,
+		"fen":     fen,
+		"mode":    string(gameObj.Mode),
+		"status":  "finished",
 	})
 }
