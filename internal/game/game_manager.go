@@ -10,6 +10,14 @@ import (
 	"github.com/notnil/chess"
 )
 
+type GameMode string
+
+const (
+	ModeMultiplayer  GameMode = "multiplayer"
+	ModeVsComputer   GameMode = "vs_computer"
+	ModeOpeningStudy GameMode = "opening_study"
+)
+
 type GameManager struct {
 	games map[string]*Game
 	mutex sync.RWMutex
@@ -21,8 +29,13 @@ type Game struct {
 	White              *Player
 	Black              *Player
 	Status             string
+	Result             string
+	Winner             string
 	CreatedAt          time.Time
 	FormattedCreatedAt string
+	Mode               GameMode
+	AllowFreeMoves     bool
+	SANHistory         []string
 	mutex              sync.RWMutex
 }
 
@@ -39,15 +52,50 @@ func (g *Game) ChessGame() *chess.Game {
 	return g.chess
 }
 
+func (g *Game) FEN() string {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+	return g.chess.FEN()
+}
+
+func (g *Game) PGN() string {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+	return g.chess.String()
+}
+
+func (g *Game) PositionTurn() chess.Color {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+	return g.chess.Position().Turn()
+}
+
+func (g *Game) MoveHistorySAN() []string {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+
+	history := make([]string, len(g.SANHistory))
+	copy(history, g.SANHistory)
+	return history
+}
+
 func (gm *GameManager) CanUserAccessGame(userID, gameID string) bool {
-	gm.mutex.Lock()
-	defer gm.mutex.Unlock()
+	gm.mutex.RLock()
+	defer gm.mutex.RUnlock()
 
 	game, exists := gm.games[gameID]
 	if !exists {
 		return false
 	}
-	return game.White.UserID == userID || game.Black.UserID == userID
+
+	if game.White != nil && game.White.UserID == userID {
+		return true
+	}
+	if game.Black != nil && game.Black.UserID == userID {
+		return true
+	}
+
+	return false
 }
 
 func (gm *GameManager) FindAvailableGame() *Game {
@@ -55,9 +103,7 @@ func (gm *GameManager) FindAvailableGame() *Game {
 	defer gm.mutex.RUnlock()
 
 	for _, game := range gm.games {
-		// A game is available if it has only one player (white)
-		// and black slot is empty
-		if game.White != nil && game.Black == nil {
+		if game.Mode == ModeMultiplayer && game.White != nil && game.Black == nil && game.Status == "waiting" {
 			return game
 		}
 	}
@@ -65,17 +111,22 @@ func (gm *GameManager) FindAvailableGame() *Game {
 }
 
 func (gm *GameManager) GetPlayerColor(userID, gameID string) chess.Color {
-	gm.mutex.Lock()
-	defer gm.mutex.Unlock()
+	gm.mutex.RLock()
+	defer gm.mutex.RUnlock()
 
 	game, exists := gm.games[gameID]
 	if !exists {
-		return chess.White // Default fallback
-	}
-	if game.White.UserID == userID {
 		return chess.White
 	}
-	return chess.Black
+
+	if game.White != nil && game.White.UserID == userID {
+		return chess.White
+	}
+	if game.Black != nil && game.Black.UserID == userID {
+		return chess.Black
+	}
+
+	return chess.White
 }
 
 func NewGameManager() *GameManager {
@@ -89,10 +140,81 @@ func (gm *GameManager) CreateGame(userID, userName string) *Game {
 	defer gm.mutex.Unlock()
 
 	game := &Game{
-		ID:        gm.GenerateUniqueGameID(),
-		chess:     chess.NewGame(),
-		Status:    "waiting",
-		CreatedAt: time.Now(),
+		ID:         gm.GenerateUniqueGameID(),
+		chess:      chess.NewGame(),
+		Status:     "waiting",
+		CreatedAt:  time.Now(),
+		Mode:       ModeMultiplayer,
+		SANHistory: []string{},
+		White: &Player{
+			UserID: userID,
+			Name:   userName,
+			Side:   chess.White,
+			Ready:  true,
+		},
+	}
+
+	gm.games[game.ID] = game
+	return game
+}
+
+func (gm *GameManager) CreateVsComputerGame(userID, userName string, userColor chess.Color) *Game {
+	gm.mutex.Lock()
+	defer gm.mutex.Unlock()
+
+	game := &Game{
+		ID:         gm.GenerateUniqueGameID(),
+		chess:      chess.NewGame(),
+		Status:     "active",
+		CreatedAt:  time.Now(),
+		Mode:       ModeVsComputer,
+		SANHistory: []string{},
+	}
+
+	if userColor == chess.White {
+		game.White = &Player{
+			UserID: userID,
+			Name:   userName,
+			Side:   chess.White,
+			Ready:  true,
+		}
+		game.Black = &Player{
+			UserID: "computer",
+			Name:   "Computer",
+			Side:   chess.Black,
+			Ready:  true,
+		}
+	} else {
+		game.White = &Player{
+			UserID: "computer",
+			Name:   "Computer",
+			Side:   chess.White,
+			Ready:  true,
+		}
+		game.Black = &Player{
+			UserID: userID,
+			Name:   userName,
+			Side:   chess.Black,
+			Ready:  true,
+		}
+	}
+
+	gm.games[game.ID] = game
+	return game
+}
+
+func (gm *GameManager) CreateOpeningStudyGame(userID, userName string) *Game {
+	gm.mutex.Lock()
+	defer gm.mutex.Unlock()
+
+	game := &Game{
+		ID:             gm.GenerateUniqueGameID(),
+		chess:          chess.NewGame(),
+		Status:         "active",
+		CreatedAt:      time.Now(),
+		Mode:           ModeOpeningStudy,
+		AllowFreeMoves: true,
+		SANHistory:     []string{},
 		White: &Player{
 			UserID: userID,
 			Name:   userName,
@@ -117,6 +239,10 @@ func (gm *GameManager) JoinGame(gameID, userID, userName string) error {
 	game.mutex.Lock()
 	defer game.mutex.Unlock()
 
+	if game.Mode != ModeMultiplayer {
+		return fmt.Errorf("only multiplayer games can be joined")
+	}
+
 	if game.Status != "waiting" {
 		return fmt.Errorf("game already started")
 	}
@@ -125,7 +251,6 @@ func (gm *GameManager) JoinGame(gameID, userID, userName string) error {
 		return fmt.Errorf("game already full")
 	}
 
-	// Add second player
 	game.Black = &Player{
 		UserID: userID,
 		Name:   userName,
@@ -133,12 +258,137 @@ func (gm *GameManager) JoinGame(gameID, userID, userName string) error {
 		Ready:  true,
 	}
 
-	// Start the game if both players are ready
-	if game.White.Ready && game.Black.Ready {
+	if game.White != nil && game.White.Ready && game.Black.Ready {
 		game.Status = "active"
 	}
 
 	return nil
+}
+
+func (gm *GameManager) SurrenderGame(gameID string, surrenderingUserID string) (winner string, result string, fen string, err error) {
+	gm.mutex.RLock()
+	game, exists := gm.games[gameID]
+	gm.mutex.RUnlock()
+
+	if !exists {
+		return "", "", "", fmt.Errorf("game not found")
+	}
+
+	game.mutex.Lock()
+	defer game.mutex.Unlock()
+
+	if game.Status == "finished" {
+		return game.Winner, game.Result, game.chess.FEN(), nil
+	}
+
+	var surrenderingColor chess.Color
+	var winnerName string
+
+	switch {
+	case game.White != nil && game.White.UserID == surrenderingUserID:
+		surrenderingColor = chess.White
+		if game.Black != nil {
+			winnerName = game.Black.Name
+		} else {
+			winnerName = "Black"
+		}
+	case game.Black != nil && game.Black.UserID == surrenderingUserID:
+		surrenderingColor = chess.Black
+		if game.White != nil {
+			winnerName = game.White.Name
+		} else {
+			winnerName = "White"
+		}
+	default:
+		return "", "", "", fmt.Errorf("user is not part of this game")
+	}
+
+	game.Status = "finished"
+
+	if surrenderingColor == chess.White {
+		game.Winner = "black"
+		game.Result = "White surrendered. Black wins."
+	} else {
+		game.Winner = "white"
+		game.Result = "Black surrendered. White wins."
+	}
+
+	if winnerName != "" {
+		if surrenderingColor == chess.White {
+			game.Result = fmt.Sprintf("%s wins by resignation.", winnerName)
+		} else {
+			game.Result = fmt.Sprintf("%s wins by resignation.", winnerName)
+		}
+	}
+
+	return game.Winner, game.Result, game.chess.FEN(), nil
+}
+
+func (gm *GameManager) ApplySANMove(gameID, moveStr string) (string, error) {
+	gm.mutex.RLock()
+	game, exists := gm.games[gameID]
+	gm.mutex.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("game not found")
+	}
+
+	game.mutex.Lock()
+	defer game.mutex.Unlock()
+
+	if game.Status == "finished" {
+		return "", fmt.Errorf("game is already finished")
+	}
+
+	move, err := chess.AlgebraicNotation{}.Decode(game.chess.Position(), moveStr)
+	if err != nil {
+		return "", err
+	}
+
+	if err := game.chess.Move(move); err != nil {
+		return "", err
+	}
+
+	game.SANHistory = append(game.SANHistory, moveStr)
+	return game.chess.FEN(), nil
+}
+
+func (gm *GameManager) UndoLastMove(gameID string) (string, error) {
+	gm.mutex.RLock()
+	game, exists := gm.games[gameID]
+	gm.mutex.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("game not found")
+	}
+
+	game.mutex.Lock()
+	defer game.mutex.Unlock()
+
+	moves := game.chess.Moves()
+	if len(moves) == 0 {
+		return game.chess.FEN(), nil
+	}
+
+	newGame := chess.NewGame()
+	for i := 0; i < len(moves)-1; i++ {
+		if err := newGame.Move(moves[i]); err != nil {
+			return "", err
+		}
+	}
+
+	game.chess = newGame
+	if len(game.SANHistory) > 0 {
+		game.SANHistory = game.SANHistory[:len(game.SANHistory)-1]
+	}
+
+	return game.chess.FEN(), nil
+}
+
+func (gm *GameManager) GetGame(gameID string) *Game {
+	gm.mutex.RLock()
+	defer gm.mutex.RUnlock()
+	return gm.games[gameID]
 }
 
 func (gm *GameManager) CleanupOldGames() {
@@ -146,8 +396,12 @@ func (gm *GameManager) CleanupOldGames() {
 	defer gm.mutex.Unlock()
 
 	for id, game := range gm.games {
-		// Remove games older than 1 hour with only one player
-		if game.Black == nil && time.Since(game.CreatedAt) > time.Hour {
+		if game.Mode == ModeMultiplayer && game.Black == nil && time.Since(game.CreatedAt) > time.Hour {
+			delete(gm.games, id)
+			continue
+		}
+
+		if (game.Mode == ModeVsComputer || game.Mode == ModeOpeningStudy) && time.Since(game.CreatedAt) > 4*time.Hour {
 			delete(gm.games, id)
 		}
 	}
@@ -157,81 +411,37 @@ func (gm *GameManager) GetActiveGames() []*Game {
 	gm.mutex.RLock()
 	defer gm.mutex.RUnlock()
 
-	var active []*Game
+	var activeGames []*Game
 	for _, game := range gm.games {
-		if game.Status == "active" && game.White != nil && game.Black != nil {
-			active = append(active, game)
+		if game.Status == "active" {
+			activeGames = append(activeGames, game)
 		}
 	}
-	return active
-}
-
-func (gm *GameManager) GetGameStats() map[string]int {
-	gm.mutex.RLock()
-	defer gm.mutex.RUnlock()
-
-	stats := map[string]int{
-		"total":    len(gm.games),
-		"active":   0,
-		"waiting":  0,
-		"finished": 0,
-	}
-
-	for _, game := range gm.games {
-		switch game.Status {
-		case "active":
-			stats["active"]++
-		case "waiting":
-			stats["waiting"]++
-		case "finished":
-			stats["finished"]++
-		}
-	}
-	return stats
+	return activeGames
 }
 
 func (gm *GameManager) GetWaitingGames() []*Game {
 	gm.mutex.RLock()
 	defer gm.mutex.RUnlock()
 
-	var waiting []*Game
+	var waitingGames []*Game
 	for _, game := range gm.games {
-		if game.Status == "waiting" && game.Black == nil {
-			waiting = append(waiting, game)
+		if game.Status == "waiting" {
+			waitingGames = append(waitingGames, game)
 		}
 	}
-	return waiting
-}
-
-func (gm *GameManager) GetUserGames(userID string) []*Game {
-	gm.mutex.RLock()
-	defer gm.mutex.RUnlock()
-
-	var userGames []*Game
-	for _, game := range gm.games {
-		if (game.White != nil && game.White.UserID == userID) ||
-			(game.Black != nil && game.Black.UserID == userID) {
-			userGames = append(userGames, game)
-		}
-	}
-	return userGames
-}
-
-func (gm *GameManager) GetGame(id string) *Game {
-	gm.mutex.RLock()
-	defer gm.mutex.RUnlock()
-	return gm.games[id]
-}
-
-func generateGameID() string {
-	bytes := make([]byte, 3) // 6 characters in hex
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
+	return waitingGames
 }
 
 func (gm *GameManager) GenerateUniqueGameID() string {
 	for {
-		id := generateGameID()
+		b := make([]byte, 4)
+		_, err := rand.Read(b)
+		if err != nil {
+			panic(err)
+		}
+		id := hex.EncodeToString(b)
+
 		if _, exists := gm.games[id]; !exists {
 			return id
 		}
