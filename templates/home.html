@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Good morning</title>
+    <title>Chess App</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
@@ -34,44 +34,90 @@
     </nav>
 
     <main class="container mx-auto px-4 py-8">
-        <header class="text-center mb-12">
-            <h1 class="text-4xl font-bold text-gray-800 mb-2">♞ Welcome to Chess</h1>
-            <p class="text-gray-600">Play chess against friends in real-time</p>
-        </header>
-
-        <div class="max-w-md mx-auto space-y-6">
-            {{if .User}}
-            <!-- Logged-in user actions -->
-            <div class="bg-white rounded-lg shadow-lg p-6 space-y-4">
-                <h2 class="text-xl font-bold text-gray-800 text-center">Quick Match</h2>
-                <button class="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
-                    hx-post="/api/quick-play">
-                    Find Opponent
-                </button>
+        <div class="max-w-5xl mx-auto space-y-6">
+            <div class="text-center">
+                <h1 class="text-4xl font-bold text-gray-800 mb-2">Play Chess</h1>
+                <p class="text-gray-600">Multiplayer, vs computer, or opening study mode</p>
             </div>
-            <div class="bg-white rounded-lg shadow-lg p-6 space-y-4">
-                <button class="w-full py-3 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700"
-                    hx-post="/api/create-game" hx-target="#game-section">
-                    Create Game
-                </button>
-                <div class="border-t pt-4">
-                    <form hx-post="/api/join-game" hx-target="#game-section" class="flex space-x-2">
-                        <input type="text" name="game_id" placeholder="Game ID"
-                            class="flex-1 px-3 py-2 border rounded-lg" required>
+
+            {{if .User}}
+            <div class="grid md:grid-cols-3 gap-6">
+                <!-- Quick Play -->
+                <div class="bg-white rounded-lg shadow-lg p-6 space-y-4">
+                    <h2 class="text-xl font-bold text-gray-800 text-center">Quick Play</h2>
+                    <p class="text-sm text-gray-600 text-center">Instantly find an opponent or create a waiting game.</p>
+                    <button class="w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700"
+                        hx-post="/api/quick-play">
+                        Find Opponent
+                    </button>
+                </div>
+
+                <!-- Multiplayer -->
+                <div class="bg-white rounded-lg shadow-lg p-6 space-y-4">
+                    <h2 class="text-xl font-bold text-gray-800 text-center">Multiplayer</h2>
+                    <button class="w-full py-3 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700"
+                        hx-post="/api/create-game" hx-target="#game-section">
+                        Create Game
+                    </button>
+                    <div class="border-t pt-4">
+                        <form hx-post="/api/join-game" hx-target="#game-section" class="flex space-x-2">
+                            <input type="text" name="game_id" placeholder="Game ID"
+                                class="flex-1 px-3 py-2 border rounded-lg" required>
+                            <button type="submit"
+                                class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">Join</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Single Player -->
+                <div class="bg-white rounded-lg shadow-lg p-6 space-y-4">
+                    <h2 class="text-xl font-bold text-gray-800 text-center">Single Player</h2>
+                    <form hx-post="/api/single-player/create" hx-target="#game-section" class="space-y-4" id="singlePlayerForm">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Mode</label>
+                            <select name="mode" id="singlePlayerMode" class="w-full px-3 py-2 border rounded-lg">
+                                <option value="vs_computer">Play vs Computer</option>
+                                <option value="opening_study">Study with Opening Explorer</option>
+                            </select>
+                        </div>
+
+                        <div id="userColorWrap">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Your Color</label>
+                            <select name="user_color" class="w-full px-3 py-2 border rounded-lg">
+                                <option value="white">White</option>
+                                <option value="black">Black</option>
+                            </select>
+                        </div>
+
                         <button type="submit"
-                            class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">Join</button>
+                            class="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700">
+                            Start Single Player
+                        </button>
                     </form>
                 </div>
-                <div id="game-section"></div>
             </div>
+
+            <div id="game-section"></div>
             {{else}}
-            <!-- Anonymous user actions -->
             <div class="bg-white rounded-lg shadow-lg p-6 text-center">
                 <p class="text-gray-700 text-lg">Sign in or create an account to start playing!</p>
             </div>
             {{end}}
         </div>
     </main>
+
+    <script>
+        const modeSelect = document.getElementById('singlePlayerMode');
+        const userColorWrap = document.getElementById('userColorWrap');
+
+        if (modeSelect && userColorWrap) {
+            const syncSinglePlayerMode = () => {
+                userColorWrap.style.display = modeSelect.value === 'opening_study' ? 'none' : 'block';
+            };
+            modeSelect.addEventListener('change', syncSinglePlayerMode);
+            syncSinglePlayerMode();
+        }
+    </script>
 </body>
 
 </html>
