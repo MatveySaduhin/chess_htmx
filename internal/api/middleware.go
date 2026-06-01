@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/gin-gonic/gin"
 	"net/http"
+	"strings"
 )
 
 func (s *Server) AuthMiddleware() gin.HandlerFunc {
@@ -36,6 +37,28 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 		c.Set("user_id", session.UserID.Hex())
 		c.Set("user_name", user.Name)
 		c.Set("user", user)
+		c.Next()
+	}
+}
+
+func (s *Server) EasyAuthJWTMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		token, ok := strings.CutPrefix(authHeader, "Bearer ")
+		if !ok || strings.TrimSpace(token) == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing_bearer_token"})
+			return
+		}
+
+		claims, err := s.easyAuthJWTValidator.Validate(c.Request.Context(), strings.TrimSpace(token))
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_bearer_token"})
+			return
+		}
+
+		c.Set("auth_user_id", claims.Subject)
+		c.Set("auth_session_id", claims.SessionID)
+		c.Set("user_id", claims.Subject)
 		c.Next()
 	}
 }

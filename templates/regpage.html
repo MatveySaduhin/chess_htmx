@@ -30,7 +30,7 @@
                 <header class="text-center mb-6">
                     <h1 class="text-3xl font-bold text-gray-800">Create an Account</h1>
                 </header>
-                <form hx-post="/api/registration" hx-target="#result" hx-swap="outerHTML">
+                <form id="register-form">
                     <div class="space-y-4">
                         <div>
                             <label for="name" class="block text-sm font-medium text-gray-700">Name</label>
@@ -48,7 +48,7 @@
                                 class="mt-1 w-full px-3 py-2 border rounded-lg">
                         </div>
                     </div>
-                    <div id="result" class="mt-4 min-h-[1.5rem]"></div>
+                    <div id="result" class="mt-4 min-h-[1.5rem] text-sm"></div>
                     <button type="submit"
                         class="mt-4 w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">
                         Create Account
@@ -57,6 +57,30 @@
             </div>
         </div>
     </main>
+    <script>
+        document.getElementById("register-form").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const result = document.getElementById("result");
+            result.textContent = "";
+
+            const formData = new FormData(event.currentTarget);
+            const response = await fetch("/api/easy-auth/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(Object.fromEntries(formData.entries()))
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                result.className = "mt-4 min-h-[1.5rem] text-sm text-red-600";
+                result.textContent = data.message || data.error || "Registration failed";
+                return;
+            }
+
+            result.className = "mt-4 min-h-[1.5rem] text-sm text-green-600";
+            result.textContent = "Account created. Redirecting to sign in.";
+            window.location.href = "/auth";
+        });
+    </script>
 </body>
 
 </html>

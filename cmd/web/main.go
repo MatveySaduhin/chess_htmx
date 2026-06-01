@@ -39,7 +39,14 @@ func main() {
 
 	authService := initAuthService(client)
 
-	sessionService := api.NewSessionService(client, "chess_app", "your-secret-key-here")
+	sessionService := api.NewSessionService(client, "chess_app", sessionSecret)
+	profileService, err := api.NewProfileService(client, "chess_app")
+	if err != nil {
+		log.Fatal("Error initializing profile service: ", err)
+	}
+	easyAuthConfig := api.EasyAuthConfigFromEnv()
+	easyAuthClient := api.NewEasyAuthClient(easyAuthConfig)
+	easyAuthValidator := api.NewEasyAuthJWTValidator(easyAuthConfig)
 
 	gameManager := game.NewGameManager()
 	go func() {
@@ -58,10 +65,10 @@ func main() {
 	websocketHub := initWebSocketHub(gameManager)
 	go websocketHub.Run()
 
-	handlers := api.NewServer(gameManager, authService, sessionService, websocketHub)
+	handlers := api.NewServer(gameManager, authService, sessionService, profileService, easyAuthClient, easyAuthValidator, websocketHub)
 
 	router := setupRouter(handlers)
-	if err := router.Run(":8080"); err != nil {
+	if err := router.Run(":" + port); err != nil {
 		log.Fatal("Error starting server: ", err)
 	}
 }
@@ -89,6 +96,14 @@ func setupRouter(handlers *api.Server) *gin.Engine {
 		public.GET("/registration", handlers.RegPage)
 		public.POST("/api/login", handlers.Login)
 		public.POST("/api/registration", handlers.Register)
+		public.POST("/api/easy-auth/register", handlers.EasyAuthRegister)
+		public.POST("/api/easy-auth/login", handlers.EasyAuthLogin)
+	}
+
+	easyAuthProtected := r.Group("/")
+	easyAuthProtected.Use(handlers.EasyAuthJWTMiddleware())
+	{
+		easyAuthProtected.GET("/api/profile/me", handlers.EasyAuthProfileMe)
 	}
 
 	protected := r.Group("/")
@@ -97,19 +112,19 @@ func setupRouter(handlers *api.Server) *gin.Engine {
 		protected.POST("/api/create-game", handlers.CreateGame)
 		protected.POST("/api/logout", handlers.Logout)
 		protected.POST("/api/quick-play", handlers.QuickPlay)
-	
+
 		protected.POST("/api/single-player/create", handlers.CreateSinglePlayerGame)
 		protected.POST("/api/single-player/move", handlers.SinglePlayerMove)
 		protected.POST("/api/single-player/undo", handlers.UndoSinglePlayerMove)
 		protected.GET("/api/opening", handlers.GetOpeningInfo)
-	
+
 		protected.POST("/api/engine/move", handlers.EngineMove)
-	
+
 		protected.POST("/api/join-game", handlers.JoinGame)
 		protected.POST("/api/game/surrender", handlers.SurrenderGame)
 		protected.GET("/game/:id", handlers.GamePage)
 		protected.GET("/ws/game/:id", handlers.GameWebsocket)
-	
+
 		admin := protected.Group("/admin")
 		admin.Use(handlers.AdminMiddleware())
 		{

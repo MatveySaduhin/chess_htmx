@@ -30,7 +30,7 @@
                 <header class="text-center mb-6">
                     <h1 class="text-3xl font-bold text-gray-800">Sign In</h1>
                 </header>
-                <form hx-post="/api/login" hx-target="#result" hx-swap="outerHTML">
+                <form id="login-form">
                     <div class="space-y-4">
                         <div>
                             <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
@@ -43,7 +43,7 @@
                                 class="mt-1 w-full px-3 py-2 border rounded-lg">
                         </div>
                     </div>
-                    <div id="result" class="mt-4 min-h-[1.5rem]"></div>
+                    <div id="result" class="mt-4 min-h-[1.5rem] text-sm"></div>
                     <button type="submit"
                         class="mt-4 w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">
                         SIGN IN
@@ -52,6 +52,42 @@
             </div>
         </div>
     </main>
+    <script>
+        document.getElementById("login-form").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const result = document.getElementById("result");
+            result.textContent = "";
+
+            const formData = new FormData(event.currentTarget);
+            const response = await fetch("/api/easy-auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(Object.fromEntries(formData.entries()))
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                result.className = "mt-4 min-h-[1.5rem] text-sm text-red-600";
+                result.textContent = data.message || data.error || "Sign in failed";
+                return;
+            }
+
+            localStorage.setItem("easy_auth_access_token", data.access_token);
+            if (data.refresh_token) {
+                localStorage.setItem("easy_auth_refresh_token", data.refresh_token);
+            }
+
+            const profileResponse = await fetch("/api/profile/me", {
+                headers: { "Authorization": `Bearer ${data.access_token}` }
+            });
+            if (!profileResponse.ok) {
+                result.className = "mt-4 min-h-[1.5rem] text-sm text-red-600";
+                result.textContent = "Signed in, but chess profile could not be loaded";
+                return;
+            }
+
+            window.location.href = "/";
+        });
+    </script>
 </body>
 
 </html>
