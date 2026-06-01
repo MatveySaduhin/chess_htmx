@@ -1,19 +1,21 @@
 console.log("=== GAME.JS STARTING ===");
 
-$(document).ready(function () {
+$(document).ready(async function () {
   const gameDataEl = $("#game-data");
   console.log("2. Game data element found:", gameDataEl.length);
 
   const gameId = gameDataEl.data("gameid");
-  const playerColor = gameDataEl.data("color");
-  const mode = gameDataEl.data("mode") || "multiplayer";
-  const isSinglePlayer =
+  const isEasyAuth = String(gameDataEl.data("is-easy-auth")) === "true";
+  let playerColor = gameDataEl.data("color");
+  let mode = gameDataEl.data("mode") || "multiplayer";
+  let isSinglePlayer =
     String(gameDataEl.data("is-single-player")) === "true";
-  const isOpeningStudy =
+  let isOpeningStudy =
     String(gameDataEl.data("is-opening-study")) === "true";
-  const isVsComputer =
+  let isVsComputer =
     String(gameDataEl.data("is-vs-computer")) === "true";
-  const initialFEN = gameDataEl.data("initial-fen");
+  let initialFEN = gameDataEl.data("initial-fen");
+  let easyAuthWebSocketSupported = false;
 
   console.log("4. Parsed data - GameID:", gameId, "Color:", playerColor);
   console.log("5. Mode flags:", {
@@ -23,6 +25,71 @@ $(document).ready(function () {
     isVsComputer,
     initialFEN,
   });
+
+  function renderEasyAuthLoadError(message) {
+    $("#gameStatus").html(message);
+    $("#connectionStatus")
+      .removeClass("bg-green-100 text-green-800 bg-gray-100 text-gray-700")
+      .addClass("bg-red-100 text-red-800")
+      .html(`<span class="w-2 h-2 bg-red-500 rounded-full"></span><span>${message}</span>`);
+  }
+
+  if (isEasyAuth) {
+    if (!getAccessToken()) {
+      renderEasyAuthLoadError("Missing Easy Auth token. Please sign in again.");
+      return;
+    }
+
+    try {
+      const response = await authFetch(`/api/easy-auth/games/${encodeURIComponent(gameId)}`);
+      if (response.status === 401) {
+        logoutLocal();
+        renderEasyAuthLoadError("Your session expired. Please sign in again.");
+        return;
+      }
+      if (response.status === 403) {
+        renderEasyAuthLoadError("You are not allowed to access this game.");
+        return;
+      }
+      if (response.status === 404) {
+        renderEasyAuthLoadError("Game not found.");
+        return;
+      }
+      if (!response.ok) {
+        renderEasyAuthLoadError("Could not load game state.");
+        return;
+      }
+
+      const state = await response.json();
+      playerColor = state.color || "white";
+      mode = state.mode || "multiplayer";
+      isSinglePlayer = Boolean(state.is_single_player);
+      isOpeningStudy = Boolean(state.is_opening_study);
+      isVsComputer = Boolean(state.is_vs_computer);
+      initialFEN = state.initial_fen || "start";
+      easyAuthWebSocketSupported = Boolean(state.websocket_supported);
+
+      $("#game-mode-label").text(`Mode: ${mode}`);
+      $("#player-color-badge")
+        .removeClass("white black")
+        .addClass(playerColor)
+        .text(`You are playing as ${playerColor}`);
+      $("#white-player-label").html(
+        state.white_player_name
+          ? `${state.white_player_name}${playerColor === "white" ? '<span class="text-blue-500 text-sm ml-2">(You)</span>' : ""}`
+          : '<span class="text-gray-400">Waiting...</span>'
+      );
+      $("#black-player-label").html(
+        state.black_player_name
+          ? `${state.black_player_name}${playerColor === "black" ? '<span class="text-blue-500 text-sm ml-2">(You)</span>' : ""}`
+          : '<span class="text-gray-400">Waiting...</span>'
+      );
+    } catch (err) {
+      console.error("Failed to load Easy Auth game state:", err);
+      renderEasyAuthLoadError("Could not load game state.");
+      return;
+    }
+  }
 
   const game = new Chess();
   if (initialFEN && initialFEN !== "start") {
@@ -183,6 +250,12 @@ $(document).ready(function () {
   }
 
   function connectWebSocket() {
+    if (isEasyAuth && !easyAuthWebSocketSupported) {
+      console.log("Skipping WebSocket: Easy Auth websocket flow is not enabled yet");
+      setConnectionStatus("Live updates not enabled for Easy Auth yet", false);
+      return;
+    }
+
     if (isSinglePlayer) {
       console.log("Skipping WebSocket: single-player mode");
       setConnectionStatus("Single-player mode", true);
@@ -190,12 +263,24 @@ $(document).ready(function () {
     }
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/game/${gameId}`;
+    const wsPath = isEasyAuth ? `/easy-auth/ws/game/${gameId}` : `/ws/game/${gameId}`;
+    const wsUrl = `${protocol}//${window.location.host}${wsPath}`;
 
     ws = new WebSocket(wsUrl);
 
     ws.onopen = function () {
       console.log("WebSocket connected to game:", gameId);
+      if (isEasyAuth) {
+        const accessToken = getAccessToken();
+        if (!accessToken) {
+          setConnectionStatus("Missing Easy Auth token", false);
+          ws.close();
+          return;
+        }
+        setConnectionStatus("Authenticating", true);
+        ws.send(JSON.stringify({ type: "auth", token: accessToken }));
+        return;
+      }
       setConnectionStatus("Connected", true);
     };
 
@@ -245,8 +330,29 @@ $(document).ready(function () {
         console.log("Game state synchronized from FEN");
         break;
 
+      case "auth_success":
+        const authState = data.payload || {};
+        if (authState.fen) {
+          game.load(authState.fen);
+          board.position(authState.fen);
+        }
+        if (authState.color) {
+          playerColor = authState.color;
+          boardOrientation = playerColor;
+          board.orientation(boardOrientation);
+        }
+        setConnectionStatus("Connected", true);
+        updateStatus();
+        break;
+
       case "error":
         console.error("Server error:", data.payload.error);
+        if (isEasyAuth && data.payload.error && data.payload.error.includes("authentication")) {
+          setConnectionStatus(data.payload.error, false);
+          $("#myBoard").addClass("board-disabled");
+          gameActive = false;
+          return;
+        }
         alert("Move error: " + data.payload.error);
         break;
 
@@ -566,7 +672,10 @@ $(document).ready(function () {
   board = Chessboard("myBoard", config);
   console.log("7. Chessboard initialized:", board);
 
-  if (isSinglePlayer) {
+  if (isEasyAuth && !isSinglePlayer) {
+    gameActive = false;
+    document.getElementById("myBoard").classList.add("board-disabled");
+  } else if (isSinglePlayer) {
     gameActive = true;
     document.getElementById("myBoard").classList.remove("board-disabled");
   }

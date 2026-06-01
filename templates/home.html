@@ -8,6 +8,7 @@
     <title>Chess App</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/static/js/easy-auth.js"></script>
 </head>
 
 <body class="bg-gray-100 min-h-screen">
@@ -24,9 +25,16 @@
                     <button hx-post="/api/logout"
                         class="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Logout</button>
                     {{else}}
+                    <div id="easy-auth-nav" class="hidden items-center space-x-4">
+                        <span class="text-gray-700">Welcome, <strong id="easy-auth-display-name"></strong>!</span>
+                        <button id="easy-auth-logout"
+                            class="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Logout</button>
+                    </div>
+                    <div id="guest-nav" class="flex items-center space-x-4">
                     <a href="/auth" class="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Sign In</a>
                     <a href="/registration"
                         class="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Register</a>
+                    </div>
                     {{end}}
                 </div>
             </div>
@@ -99,8 +107,52 @@
 
             <div id="game-section"></div>
             {{else}}
+            <div id="easy-auth-profile-card" class="hidden bg-white rounded-lg shadow-lg p-6">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-800">Easy Auth Profile</h2>
+                        <p class="text-gray-700 mt-1">Signed in as <strong id="easy-auth-profile-name"></strong></p>
+                        <p class="text-sm text-gray-500 mt-1">Auth user ID: <span id="easy-auth-profile-id"></span></p>
+                        <div class="mt-4 flex flex-col sm:flex-row gap-2">
+                            <button id="easy-auth-quick-play"
+                                class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">
+                                Quick Play
+                            </button>
+                            <button id="easy-auth-create-game"
+                                class="px-4 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">
+                                Create Game
+                            </button>
+                        </div>
+                        <form id="easy-auth-join-game-form" class="mt-3 flex gap-2">
+                            <input type="text" name="game_id" placeholder="Game ID"
+                                class="flex-1 px-3 py-2 border rounded-lg" required>
+                            <button type="submit"
+                                class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">Join</button>
+                        </form>
+                        <div id="easy-auth-game-result" class="mt-3 min-h-[1.5rem] text-sm text-gray-700"></div>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                        <div class="rounded border p-3">
+                            <div id="easy-auth-rapid" class="font-bold text-gray-800">1200</div>
+                            <div class="text-xs text-gray-500">Rapid</div>
+                        </div>
+                        <div class="rounded border p-3">
+                            <div id="easy-auth-blitz" class="font-bold text-gray-800">1200</div>
+                            <div class="text-xs text-gray-500">Blitz</div>
+                        </div>
+                        <div class="rounded border p-3">
+                            <div id="easy-auth-bullet" class="font-bold text-gray-800">1200</div>
+                            <div class="text-xs text-gray-500">Bullet</div>
+                        </div>
+                        <div class="rounded border p-3">
+                            <div id="easy-auth-classical" class="font-bold text-gray-800">1200</div>
+                            <div class="text-xs text-gray-500">Classical</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="bg-white rounded-lg shadow-lg p-6 text-center">
-                <p class="text-gray-700 text-lg">Sign in or create an account to start playing!</p>
+                <p id="guest-message" class="text-gray-700 text-lg">Sign in or create an account to start playing!</p>
             </div>
             {{end}}
         </div>
@@ -117,6 +169,112 @@
             modeSelect.addEventListener('change', syncSinglePlayerMode);
             syncSinglePlayerMode();
         }
+
+        const renderEasyAuthProfile = async () => {
+            const nav = document.getElementById("easy-auth-nav");
+            const guestNav = document.getElementById("guest-nav");
+            const card = document.getElementById("easy-auth-profile-card");
+            if (!nav || !guestNav || !card || !getAccessToken()) {
+                return;
+            }
+
+            try {
+                const profile = await loadCurrentProfile();
+                if (!profile) {
+                    return;
+                }
+
+                document.getElementById("easy-auth-display-name").textContent = profile.display_name;
+                document.getElementById("easy-auth-profile-name").textContent = profile.display_name;
+                document.getElementById("easy-auth-profile-id").textContent = profile.auth_user_id;
+                document.getElementById("easy-auth-rapid").textContent = profile.rapid_rating;
+                document.getElementById("easy-auth-blitz").textContent = profile.blitz_rating;
+                document.getElementById("easy-auth-bullet").textContent = profile.bullet_rating;
+                document.getElementById("easy-auth-classical").textContent = profile.classical_rating;
+
+                nav.classList.remove("hidden");
+                nav.classList.add("flex");
+                guestNav.classList.add("hidden");
+                card.classList.remove("hidden");
+                document.getElementById("guest-message").textContent = "Your Easy Auth profile is loaded. Game actions still use the legacy session flow in this MVP.";
+            } catch (error) {
+                console.error(error);
+            }
+        };
+
+        const easyAuthLogout = document.getElementById("easy-auth-logout");
+        if (easyAuthLogout) {
+            easyAuthLogout.addEventListener("click", () => {
+                logoutLocal();
+                window.location.reload();
+            });
+        }
+
+        const showEasyAuthGameResult = (data) => {
+            const result = document.getElementById("easy-auth-game-result");
+            if (!result) {
+                return;
+            }
+            result.className = "mt-3 min-h-[1.5rem] text-sm text-green-700";
+            result.replaceChildren();
+            const message = document.createElement("span");
+            message.textContent = `${data.message}. Game ID: ${data.game_id}. Color: ${data.color}. `;
+            const link = document.createElement("a");
+            link.href = `/easy-auth/game/${encodeURIComponent(data.game_id)}`;
+            link.className = "font-semibold underline";
+            link.textContent = "Open board";
+            result.append(message, link);
+        };
+
+        const showEasyAuthGameError = async (response) => {
+            const result = document.getElementById("easy-auth-game-result");
+            if (!result) {
+                return;
+            }
+            const data = await response.json().catch(() => ({}));
+            result.className = "mt-3 min-h-[1.5rem] text-sm text-red-600";
+            result.textContent = data.message || data.error || "Game action failed";
+        };
+
+        const runEasyAuthGameAction = async (url, options = {}) => {
+            const response = await authFetch(url, options);
+            if (!response.ok) {
+                await showEasyAuthGameError(response);
+                return;
+            }
+            const data = await response.json();
+            showEasyAuthGameResult(data);
+            window.location.href = `/easy-auth/game/${encodeURIComponent(data.game_id)}`;
+        };
+
+        const easyAuthQuickPlay = document.getElementById("easy-auth-quick-play");
+        if (easyAuthQuickPlay) {
+            easyAuthQuickPlay.addEventListener("click", () => {
+                runEasyAuthGameAction("/api/easy-auth/quick-play", { method: "POST" });
+            });
+        }
+
+        const easyAuthCreateGame = document.getElementById("easy-auth-create-game");
+        if (easyAuthCreateGame) {
+            easyAuthCreateGame.addEventListener("click", () => {
+                runEasyAuthGameAction("/api/easy-auth/create-game", { method: "POST" });
+            });
+        }
+
+        const easyAuthJoinGameForm = document.getElementById("easy-auth-join-game-form");
+        if (easyAuthJoinGameForm) {
+            easyAuthJoinGameForm.addEventListener("submit", (event) => {
+                event.preventDefault();
+                const formData = new FormData(event.currentTarget);
+                runEasyAuthGameAction("/api/easy-auth/join-game", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(Object.fromEntries(formData.entries()))
+                });
+            });
+        }
+
+        renderEasyAuthProfile();
     </script>
 </body>
 

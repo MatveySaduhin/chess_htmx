@@ -58,6 +58,7 @@ func (s *Server) GamePage(c *gin.Context) {
 		"IsOpeningStudy":  gameObj.Mode == game.ModeOpeningStudy,
 		"IsVsComputer":    gameObj.Mode == game.ModeVsComputer,
 		"InitialFEN":      gameObj.FEN(),
+		"IsEasyAuth":      false,
 	})
 }
 

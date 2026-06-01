@@ -8,6 +8,7 @@
     <title>Chess App - Sign In</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/static/js/easy-auth.js"></script>
 </head>
 
 <body class="bg-gray-100 min-h-screen">
@@ -53,6 +54,12 @@
         </div>
     </main>
     <script>
+        const authPageResult = document.getElementById("result");
+        if (new URLSearchParams(window.location.search).get("registered") === "1") {
+            authPageResult.className = "mt-4 min-h-[1.5rem] text-sm text-green-600";
+            authPageResult.textContent = "Account created. Please sign in.";
+        }
+
         document.getElementById("login-form").addEventListener("submit", async (event) => {
             event.preventDefault();
             const result = document.getElementById("result");
@@ -67,19 +74,15 @@
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
                 result.className = "mt-4 min-h-[1.5rem] text-sm text-red-600";
-                result.textContent = data.message || data.error || "Sign in failed";
+                result.textContent = easyAuthErrorMessage(data, "Sign in failed");
                 return;
             }
 
-            localStorage.setItem("easy_auth_access_token", data.access_token);
-            if (data.refresh_token) {
-                localStorage.setItem("easy_auth_refresh_token", data.refresh_token);
-            }
+            storeEasyAuthTokens(data);
 
-            const profileResponse = await fetch("/api/profile/me", {
-                headers: { "Authorization": `Bearer ${data.access_token}` }
-            });
-            if (!profileResponse.ok) {
+            try {
+                await loadCurrentProfile();
+            } catch (error) {
                 result.className = "mt-4 min-h-[1.5rem] text-sm text-red-600";
                 result.textContent = "Signed in, but chess profile could not be loaded";
                 return;

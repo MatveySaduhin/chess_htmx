@@ -2,6 +2,7 @@ package wsmanager
 
 import (
 	"chess_htmx/internal/game"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -32,12 +33,19 @@ type GameRoom struct {
 }
 
 type Client struct {
-	hub    *GameHub
-	conn   *websocket.Conn
-	send   chan []byte
-	gameID string
-	userID string
+	hub           *GameHub
+	conn          *websocket.Conn
+	send          chan []byte
+	gameID        string
+	userID        string
+	userName      string
+	authenticator EasyAuthWebSocketAuthenticator
+	ctx           context.Context
+	registered    bool
+	authenticated bool
 }
+
+type EasyAuthWebSocketAuthenticator func(ctx context.Context, token string, gameID string) (userID string, userName string, err error)
 
 type Config struct {
 	CheckOrigin     func(r *http.Request) bool
@@ -47,6 +55,7 @@ type Config struct {
 
 type WSMessage struct {
 	Type    string `json:"type"`
+	Token   string `json:"token,omitempty"`
 	Payload any    `json:"payload"`
 }
 
@@ -121,12 +130,16 @@ func (h *GameHub) registerClient(client *Client) {
 
 	room, exists := h.games[client.gameID]
 	if !exists {
+		roomGame := chess.NewGame()
+		if gameObj := h.gameManager.GetGame(client.gameID); gameObj != nil {
+			roomGame = gameObj.ChessGame()
+		}
 		// Always create the room - the game might be created later
 		room = &GameRoom{
 			clients:   make(map[*Client]bool),
 			broadcast: make(chan []byte),
 			gameID:    client.gameID,
-			game:      chess.NewGame(), // Start with fresh chess game
+			game:      roomGame,
 		}
 		h.games[client.gameID] = room
 		go room.run()
@@ -202,14 +215,37 @@ func (hub *GameHub) ServeGameWebSocket(c *gin.Context, gameID, userID string) {
 	}
 
 	client := &Client{
-		hub:    hub,
-		conn:   conn,
-		send:   make(chan []byte, 256),
-		gameID: gameID,
-		userID: userID,
+		hub:           hub,
+		conn:          conn,
+		send:          make(chan []byte, 256),
+		gameID:        gameID,
+		userID:        userID,
+		ctx:           c.Request.Context(),
+		registered:    true,
+		authenticated: true,
 	}
 
 	hub.register <- client
+	go client.writePump()
+	go client.readPump()
+}
+
+func (hub *GameHub) ServeEasyAuthGameWebSocket(c *gin.Context, gameID string, authenticator EasyAuthWebSocketAuthenticator) {
+	conn, err := hub.upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Println("WebSocket upgrade failed:", err)
+		return
+	}
+
+	client := &Client{
+		hub:           hub,
+		conn:          conn,
+		send:          make(chan []byte, 256),
+		gameID:        gameID,
+		authenticator: authenticator,
+		ctx:           context.Background(),
+	}
+
 	go client.writePump()
 	go client.readPump()
 }
@@ -223,6 +259,8 @@ func (h *GameHub) handleGameMessage(client *Client, message []byte) {
 	}
 
 	switch wsMsg.Type {
+	case "auth":
+		h.handleAuthMessage(client, wsMsg.Token)
 	case "move":
 		h.handleMoveMessage(client, wsMsg.Payload)
 	case "chat":
@@ -234,7 +272,66 @@ func (h *GameHub) handleGameMessage(client *Client, message []byte) {
 	}
 }
 
+func (h *GameHub) handleAuthMessage(client *Client, token string) {
+	if client.authenticator == nil {
+		h.sendError(client, "Authentication is not available for this connection")
+		client.closeConnection()
+		return
+	}
+	if client.authenticated {
+		h.sendError(client, "Connection is already authenticated")
+		return
+	}
+	if strings.TrimSpace(token) == "" {
+		h.sendError(client, "Missing access token")
+		client.closeConnection()
+		return
+	}
+
+	userID, userName, err := client.authenticator(client.ctx, token, client.gameID)
+	if err != nil {
+		h.sendError(client, "WebSocket authentication failed")
+		client.closeConnection()
+		return
+	}
+
+	client.userID = userID
+	client.userName = userName
+	client.authenticated = true
+	client.registered = true
+
+	h.register <- client
+	h.sendAuthSuccess(client)
+}
+
+func (h *GameHub) sendAuthSuccess(client *Client) {
+	gameObj := h.gameManager.GetGame(client.gameID)
+	if gameObj == nil {
+		return
+	}
+
+	color := h.gameManager.GetPlayerColor(client.userID, client.gameID)
+	response := WSMessage{
+		Type: "auth_success",
+		Payload: map[string]interface{}{
+			"user_id": client.userID,
+			"name":    client.userName,
+			"color":   strings.ToLower(color.Name()),
+			"fen":     gameObj.FEN(),
+			"status":  gameObj.Status,
+		},
+	}
+
+	msgBytes, _ := json.Marshal(response)
+	client.send <- msgBytes
+}
+
 func (h *GameHub) handleMoveMessage(client *Client, payload any) {
+	if !client.authenticated {
+		h.sendError(client, "WebSocket authentication required")
+		return
+	}
+
 	moveStr, ok := payload.(string)
 	if !ok {
 		return
@@ -281,6 +378,11 @@ func (h *GameHub) sendError(client *Client, errorMsg string) {
 }
 
 func (h *GameHub) handleChatMessage(client *Client, payload interface{}) {
+	if !client.authenticated {
+		h.sendError(client, "WebSocket authentication required")
+		return
+	}
+
 	chatData, ok := payload.(map[string]interface{})
 	if !ok {
 		log.Printf("Invalid chat payload")
@@ -364,7 +466,11 @@ func (h *GameHub) broadcastWaiting(room *GameRoom) {
 
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		if c.registered {
+			c.hub.unregister <- c
+		} else {
+			close(c.send)
+		}
 		c.conn.Close()
 	}()
 
@@ -378,10 +484,14 @@ func (c *Client) readPump() {
 		}
 
 		if messageType == websocket.TextMessage {
-			log.Printf("Recieved raw data from the client %s: %s", c.userID, string(message))
 			c.hub.handleGameMessage(c, message)
 		}
 	}
+}
+
+func (c *Client) closeConnection() {
+	_ = c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "authentication failed"))
+	_ = c.conn.Close()
 }
 
 func (c *Client) writePump() {
@@ -405,6 +515,11 @@ func (c *Client) writePump() {
 }
 
 func (h *GameHub) handleSurrenderMessage(client *Client) {
+	if !client.authenticated {
+		h.sendError(client, "WebSocket authentication required")
+		return
+	}
+
 	room, exists := h.games[client.gameID]
 	if !exists {
 		return

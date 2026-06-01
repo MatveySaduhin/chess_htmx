@@ -94,6 +94,8 @@ func setupRouter(handlers *api.Server) *gin.Engine {
 		public.GET("/", handlers.Home)
 		public.GET("/auth", handlers.AuthPage)
 		public.GET("/registration", handlers.RegPage)
+		public.GET("/easy-auth/game/:id", handlers.EasyAuthGamePage)
+		public.GET("/easy-auth/ws/game/:id", handlers.EasyAuthGameWebsocket)
 		public.POST("/api/login", handlers.Login)
 		public.POST("/api/registration", handlers.Register)
 		public.POST("/api/easy-auth/register", handlers.EasyAuthRegister)
@@ -104,6 +106,10 @@ func setupRouter(handlers *api.Server) *gin.Engine {
 	easyAuthProtected.Use(handlers.EasyAuthJWTMiddleware())
 	{
 		easyAuthProtected.GET("/api/profile/me", handlers.EasyAuthProfileMe)
+		easyAuthProtected.GET("/api/easy-auth/games/:id", handlers.EasyAuthGameState)
+		easyAuthProtected.POST("/api/easy-auth/create-game", handlers.EasyAuthCreateGame)
+		easyAuthProtected.POST("/api/easy-auth/quick-play", handlers.EasyAuthQuickPlay)
+		easyAuthProtected.POST("/api/easy-auth/join-game", handlers.EasyAuthJoinGame)
 	}
 
 	protected := r.Group("/")
